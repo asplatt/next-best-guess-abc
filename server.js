@@ -242,54 +242,65 @@ function parseScoredText(text){
   return { score: score ?? 72, reason };
 }
 
-function cleanReasonForDisplay(reason){
-  let r = String(reason || '').trim();
-  r = r.replace(/```[\s\S]*?```/g, '').replace(/^["']|["']$/g, '').trim();
-  r = r.replace(/\s*(\.{3,}|…)\s*.*$/g, '').trim();
-  const stripLabel = line => line
+function normalizeTvSentence(value, fallback=''){
+  let line = String(value || '')
+    .replace(/```[\s\S]*?```/g, '')
     .replace(/^[•\-–—\s]+/, '')
     .replace(/^(Fit|Why|Likelihood|Probability|Scale|Future|Future path|Friction|Block|Score logic|Forecast|Joke|Evidence|Adoption path|Human behavior|Burn|Oracle Burn)\s*:\s*/i, '')
+    .replace(/[“”]/g, '"')
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, ' ')
     .trim();
-  const isBadLine = line => /judged against the target year|future is bold|hates paperwork|three streaming|not a technology|not a future technology|not a technology or outcome|city name is not|basically screens|called basically|unless the question is about the future|not a direct answer unless|not a tangible future trend|basically screens|called basically|unless the question is about the future|not a direct answer unless|not a tangible future trend/i.test(String(line||''));
-  const complete = line => {
-    line = String(line || '').replace(/\s+/g, ' ').replace(/[.?!…]+$/, '').trim();
-    if (!line) return '';
-    if (/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at)$/i.test(line)) return '';
-    return line + '.';
-  };
-  const shorten = (line, max=70) => {
-    line = stripLabel(line).replace(/[“”]/g, '"').replace(/[’]/g, "'");
-    if (line.length > max) line = line.slice(0,max).replace(/\s+\S*$/,'').trim();
-    return complete(line);
-  };
-  const fallback = ['This idea needs clear evidence before it scales.', 'The target year makes it possible, not automatic.', 'The oracle respects the swing, then checks the landing.'];
+  if (!line) line = fallback;
+  if (!line) return '';
+  // Never cut a sentence by character count. The prompt controls length; this only
+  // removes accidental trailing fragments after a complete sentence.
+  const completeMatch = line.match(/^(.+?[.!?])(?:\s+.*)?$/);
+  if (completeMatch) line = completeMatch[1].trim();
+  line = line.replace(/[,;:]$/, '');
+  if (!/[.!?]$/.test(line)) line += '.';
+  return line;
+}
+
+function cleanReasonForDisplay(reason){
+  const raw = String(reason || '').trim();
+  const fallback = [
+    'This answer has a believable signal, but the path to scale is uncertain.',
+    'By the target year, adoption depends on cost, trust, and everyday usefulness.',
+    'The oracle likes the ambition, but the future still wants receipts.'
+  ];
+  if (!raw) return fallback.map(x => `• ${x}`).join('\n');
+
   const fieldMap = {};
-  r.split(/\n+/).forEach(line => {
+  raw.split(/\n+/).forEach(line => {
     const m = line.trim().match(/^(WHY|LIKELIHOOD|PROBABILITY|SCALE|FUTURE|BURN|ORACLE BURN|BLOCK)\s*:\s*(.+)$/i);
     if (m) {
       const key = m[1].toUpperCase().replace('ORACLE BURN','BURN').replace('PROBABILITY','LIKELIHOOD').replace('SCALE','LIKELIHOOD');
       if (key !== 'BLOCK') fieldMap[key] = m[2].trim();
     }
   });
+
   let lines = [];
   if (fieldMap.WHY || fieldMap.LIKELIHOOD || fieldMap.FUTURE || fieldMap.BURN) {
     if (fieldMap.WHY) lines.push(fieldMap.WHY);
     if (fieldMap.LIKELIHOOD) lines.push(fieldMap.LIKELIHOOD);
     if (fieldMap.FUTURE && lines.length < 2) lines.push(fieldMap.FUTURE);
-    lines.push(fieldMap.BURN || 'By then, the future still has notes.');
-  } else if (reasonHasBullets(r)) {
-    const all = r.split(/\n+/).map(line => line.trim()).filter(Boolean).filter(line => /^\s*[•\-]/.test(line));
-    lines = all.length > 3 ? [all[0], all[1], all[all.length-1]] : all;
+    lines.push(fieldMap.BURN || fallback[2]);
   } else {
-    r = r.replace(/\s+/g, ' ');
-    lines = (r.match(/[^.!?]+[.!?]/g) || [r]).slice(0,3);
+    const bullets = raw.split(/\n+/).map(x => x.trim()).filter(x => /^[•\-–—]/.test(x));
+    if (bullets.length) lines = bullets;
+    else lines = raw.match(/[^.!?]+[.!?]/g) || [raw];
   }
-  const maxes=[90,90,90];
-  lines = lines.filter(x => !isBadLine(x));
-  let out = lines.slice(0,3).map((x,i)=>shorten(x,maxes[i])).filter(Boolean).filter(x=>!isBadLine(x));
+
+  const bad = /judged against the target year|the model|data trail|exact fit|mixed fit|category fit/i;
+  let out = lines
+    .map((x, i) => normalizeTvSentence(x, fallback[i]))
+    .filter(Boolean)
+    .filter(x => !bad.test(x));
   for (const f of fallback) { if (out.length >= 3) break; out.push(f); }
-  return out.slice(0,3).map(line => `• ${line}`).join('\n');
+  return out.slice(0, 3).map(line => `• ${line}`).join('\n');
 }
+
 function reasonLooksBroken(reason){
   const r = String(reason || '').trim();
   return !r || /\.{3,}|…/.test(r) || !/[.!?]$/.test(r) || /\b(to|and|or|with|for|than|as|before|after)$/i.test(r);
@@ -855,20 +866,12 @@ function parsePlayerBlock(raw, playerNum){
 
 async function scoreSinglePrediction({question, answer, player, round, style}) {
   const system = `You are the live judging voice for NEXT BEST GUESS, a premium ABC game-show pitch.
-
-You are an Oracle Engine, not a chatbot. Players may say ANYTHING. Judge the exact spoken answer against the exact question and target year. Do not rely on memorized examples. Do not rewrite the answer into a better idea.
-
-Your job: forecast whether this answer could become the correct future outcome. Use pattern recognition: adoption curves, cost decline, regulation, market incentives, historical analogs, technology readiness, institutions, and human behavior: vanity, fear, convenience, status, laziness, money.
-
-Screen voice rules:
-- Never use internal rubric phrases: exact fit, mixed fit, category fit, data trail, future path, the model, needs a clearer.
-- Never say ChatGPT, OpenAI, API, prompt, or model.
-- No essays. No labels. No unfinished jokes. No duplicate filler.
-- Write like a smart game-show oracle: specific, brief, confident, a little funny.
-
-Return plain text only in this format:
-SCORE: 82%
-REASON: One tight TV line, 9-16 words, directly tied to the contestant's answer.`;
+Judge the contestant's exact answer against the exact question and target year. Do not rewrite the answer into a better idea.
+Use adoption, cost, regulation, incentives, technology readiness, institutions, and human behavior.
+Write like a sharp game-show oracle: specific, confident, concise, and lightly funny.
+Return ONLY valid JSON with this exact shape:
+{"score":82,"reason":"One complete TV-ready sentence of 9 to 18 words."}
+The reason must be a complete sentence. Never end on a preposition or clipped phrase.`;
   const user = `ABC pitch context: executives are playing live.
 Round: ${round}
 Question: ${question}
@@ -881,40 +884,50 @@ Score guide:
 74-84 = solid future logic with some friction.
 60-73 = possible but partial, niche, or adjacent.
 40-59 = clever but weak, overregulated, or wrong category.
-Below 40 = barely answers the question.
-
-Make the reason one clean sentence that explains why this exact answer is likely or unlikely by the target year. No bullets. No labels. No generic rubric words.`;
+Below 40 = barely answers the question.`;
   const text = await callOpenAIText(system, user);
-  return reviewFinalResult(clampScoreToGuardrails(parseScoredText(text), question, answer), question, answer);
+  let parsed;
+  try {
+    const json = parseModelJson(text);
+    parsed = { score: clamp(json.score), reason: normalizeTvSentence(json.reason, fallbackReasonFor(question, answer)) };
+  } catch (e) {
+    parsed = parseScoredText(text);
+  }
+  return reviewFinalResult(clampScoreToGuardrails(parsed, question, answer), question, answer);
+}
+
+function parseOpenJson(text, question, answers){
+  const json = parseModelJson(text);
+  if (!json || !Array.isArray(json.players) || json.players.length < 2) throw new Error('missing players array');
+  return json.players.slice(0,2).map((p, i) => {
+    const rawBullets = Array.isArray(p.bullets) ? p.bullets : [];
+    const fall = cleanReasonForDisplay(fallbackReasonFor(question, answers[i])).split(/\n+/).map(x => x.replace(/^•\s*/,''));
+    const bullets = rawBullets.slice(0,3).map((x, j) => normalizeTvSentence(x, fall[j])).filter(Boolean);
+    while (bullets.length < 3) bullets.push(fall[bullets.length] || 'The future still wants stronger evidence.');
+    return { score: clamp(p.score), reason: bullets.slice(0,3).map(x => `• ${x}`).join('\n') };
+  });
 }
 
 async function scoreOpenMatch(payload){
   const answers = (payload.answers || []).map(normalizeAnswer);
   const q = payload.question || '';
   const system = `You are the live judging voice for NEXT BEST GUESS, a premium ABC game-show pitch.
+Compare the two exact spoken answers against the exact question and target year. Never rewrite either answer.
+Use adoption, cost, regulation, incentives, historical analogs, technology readiness, institutions, and human behavior.
+Write like a sharp game-show oracle: specific, confident, concise, and lightly funny.
 
-You are an Oracle Engine, not a chatbot. Players may say ANYTHING. Compare the two exact spoken answers against the exact question and target year. Do not rely on memorized examples. Do not rewrite either answer into a better idea.
+Return ONLY valid JSON with exactly this shape:
+{"players":[
+  {"score":82,"bullets":["Complete forecast sentence.","Complete scale or friction sentence.","Complete answer-specific host joke."]},
+  {"score":74,"bullets":["Complete forecast sentence.","Complete scale or friction sentence.","Complete answer-specific host joke."]}
+]}
 
-Your job: forecast whether each answer could become the correct future outcome. Use pattern recognition: adoption curves, cost decline, regulation, market incentives, historical analogs, technology readiness, institutions, and human behavior: vanity, fear, convenience, status, laziness, money.
-
-Screen voice rules:
-- Never use internal rubric phrases: exact fit, mixed fit, category fit, data trail, future path, the model, needs a clearer.
-- Never say ChatGPT, OpenAI, API, prompt, or model.
-- No essays. No labels. No unfinished jokes. No duplicate filler.
-- Write like a smart game-show oracle: specific, brief, confident, a little funny.
-- The two joke bullets must be different and specific to each answer.
-
-Return plain text only in this format:
-PLAYER 1 SCORE: 82%
-PLAYER 1 REASON:
-- One concrete forecast signal, 8-14 words.
-- One likelihood/scale sentence, 8-14 words.
-- One host-ready joke specific to Player 1's answer, 7-14 words.
-PLAYER 2 SCORE: 74%
-PLAYER 2 REASON:
-- One concrete forecast signal, 8-14 words.
-- One likelihood/scale sentence, 8-14 words.
-- One host-ready joke specific to Player 2's answer, 7-14 words.`;
+Rules:
+Each bullet must be a complete sentence of 7 to 15 words.
+Each bullet must be understandable without hidden context.
+Never end a bullet on a preposition, article, conjunction, or clipped phrase.
+The third bullet for each player must be a different joke tied to that player's answer.
+Do not use markdown, labels, commentary, or text outside the JSON.`;
   const user = `ABC pitch context: executives are playing live.
 Round: Round 3: Crystal Brawl
 Question: ${q}
@@ -928,14 +941,19 @@ Score guide:
 74-84 = solid future logic with some friction.
 60-73 = possible but partial, niche, or adjacent.
 40-59 = clever but weak, overregulated, or wrong category.
-Below 40 = barely answers the question.
-
-Make each three-bullet explanation understandable to someone hearing the answer for the first time. Do not reuse the same joke.`;
+Below 40 = barely answers the question.`;
   const text = await callOpenAIText(system, user);
-  const players = [
-    reviewScoredResult(clampScoreToGuardrails(parsePlayerBlock(text,1), q, answers[0] || 'No answer given'), q, answers[0] || 'No answer given'),
-    reviewScoredResult(clampScoreToGuardrails(parsePlayerBlock(text,2), q, answers[1] || 'No answer given'), q, answers[1] || 'No answer given')
-  ];
+  let players;
+  try {
+    players = parseOpenJson(text, q, answers);
+  } catch (e) {
+    console.warn('Structured Round 3 parse failed; using legacy parser:', e.message);
+    players = [
+      reviewScoredResult(clampScoreToGuardrails(parsePlayerBlock(text,1), q, answers[0] || 'No answer given'), q, answers[0] || 'No answer given'),
+      reviewScoredResult(clampScoreToGuardrails(parsePlayerBlock(text,2), q, answers[1] || 'No answer given'), q, answers[1] || 'No answer given')
+    ];
+  }
+  players = players.map((p, i) => reviewScoredResult(clampScoreToGuardrails(p, q, answers[i] || 'No answer given'), q, answers[i] || 'No answer given'));
   return { live: true, players: ensureDistinctLastJokes(players, q, answers) };
 }
 

@@ -497,58 +497,32 @@ async function runLiveEvaluation(q){
 }
 function clampScore(n){ n=Number(n); if(!Number.isFinite(n)) return 70; return Math.max(25, Math.min(96, Math.round(n))); }
 function formatReasonBullets(reason){
-  const raw=String(reason||'').trim();
-  const stripLabel = line => line
-    .replace(/^[•\-–—\s]+/, '')
-    .replace(/^(Fit|Why|Likelihood|Probability|Scale|Future|Future path|Friction|Block|Score logic|Forecast|Joke|Evidence|Adoption path|Human behavior|Burn|Oracle Burn)\s*:\s*/i, '')
-    .trim();
-  const isBadLine = line => /judged against the target year|future is bold|hates paperwork|three streaming|not a technology|not a future technology|not a technology or outcome|city name is not|basically screens|called basically|unless the question is about the future|not a direct answer unless|not a tangible future trend|basically screens|called basically|unless the question is about the future|not a direct answer unless|not a tangible future trend/i.test(String(line||''));
-  const complete = line => {
-    line = String(line||'').replace(/\s+/g,' ').replace(/[.?!…]+$/,'').trim();
-    if(!line) return '';
-    // Avoid clipped endings that feel broken on screen.
-    if(/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at)$/i.test(line)) return '';
-    return line + '.';
+  const raw = String(reason || '').trim();
+  const fallback = [
+    'This answer has a believable signal, but the path to scale is uncertain.',
+    'By the target year, adoption depends on cost, trust, and usefulness.',
+    'The oracle likes the ambition, but the future still wants receipts.'
+  ];
+  const cleanSentence = (value, fallbackText='') => {
+    let line = String(value || '')
+      .replace(/^[•\-–—\s]+/, '')
+      .replace(/^(Fit|Why|Likelihood|Probability|Scale|Future|Future path|Friction|Block|Score logic|Forecast|Joke|Evidence|Adoption path|Human behavior|Burn|Oracle Burn)\s*:\s*/i, '')
+      .replace(/[“”]/g,'"').replace(/[’]/g,"'")
+      .replace(/\s+/g,' ').trim();
+    if(!line) line = fallbackText;
+    const complete = line.match(/^(.+?[.!?])(?:\s+.*)?$/);
+    if(complete) line = complete[1].trim();
+    line = line.replace(/[,;:]$/, '');
+    if(line && !/[.!?]$/.test(line)) line += '.';
+    return line;
   };
-  const shorten = (line, max=70) => {
-    line = stripLabel(line);
-    line = line.replace(/[“”]/g,'"').replace(/[’]/g,"'");
-    if(line.length > max) line = line.slice(0,max).replace(/\s+\S*$/,'').trim();
-    return complete(line) || '';
-  };
-  const fallback = ['This has a signal, but not enough scale.', 'By the target year, it needs to feel ordinary.', 'The oracle likes the swing, not the landing.'];
   if(!raw) return fallback.map(x=>'• '+x).join('\n');
-
-  const fieldMap = {};
-  raw.split(/\n+/).forEach(line=>{
-    const m = line.trim().match(/^(WHY|LIKELIHOOD|PROBABILITY|SCALE|FUTURE|BURN|ORACLE BURN|BLOCK)\s*:\s*(.+)$/i);
-    if(m){
-      const key = m[1].toUpperCase().replace('ORACLE BURN','BURN').replace('PROBABILITY','LIKELIHOOD').replace('SCALE','LIKELIHOOD');
-      if(key !== 'BLOCK') fieldMap[key] = m[2].trim();
-    }
-  });
-  let arr=[];
-  if(fieldMap.WHY || fieldMap.LIKELIHOOD || fieldMap.FUTURE || fieldMap.BURN){
-    if(fieldMap.WHY) arr.push(fieldMap.WHY);
-    if(fieldMap.LIKELIHOOD) arr.push(fieldMap.LIKELIHOOD);
-    if(fieldMap.FUTURE && arr.length < 2) arr.push(fieldMap.FUTURE);
-    arr.push(fieldMap.BURN || 'By then, the future still has notes.');
-  } else {
-    const bulletLines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean).filter(x=>/^[-•]/.test(x));
-    if(bulletLines.length>=2){
-      arr = bulletLines.length>3 ? [bulletLines[0], bulletLines[1], bulletLines[bulletLines.length-1]] : bulletLines;
-    } else {
-      const sentences=(raw.match(/[^.!?]+[.!?]/g)||[]).map(x=>x.trim());
-      arr = (sentences.length ? sentences : [raw]).slice(0,3);
-    }
-  }
-  const maxes=[66,66,76];
-  arr = arr.filter(x => !isBadLine(x));
-  let out = arr.slice(0,3).map((x,i)=>shorten(x,maxes[i])).filter(Boolean).filter(x=>!isBadLine(x));
+  const bulletLines = raw.split(/\n+/).map(x=>x.trim()).filter(x=>/^[•\-–—]/.test(x));
+  let arr = bulletLines.length ? bulletLines : (raw.match(/[^.!?]+[.!?]/g) || [raw]);
+  let out = arr.slice(0,3).map((x,i)=>cleanSentence(x,fallback[i])).filter(Boolean);
   for(const f of fallback){ if(out.length>=3) break; out.push(f); }
   return out.slice(0,3).map(x=>'• '+x).join('\n');
 }
-
 
 function formatOpenReasonBullets(reason){
   return formatReasonBullets(reason);
