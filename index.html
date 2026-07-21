@@ -4,18 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Next Best Guess Pitch Game</title>
-  <link rel="stylesheet" href="styles.css?v=86" />
+  <link rel="stylesheet" href="styles.css?v=87" />
   <style>
     .final-review-mode .review-mid { min-width: 0; }
     .final-review-mode .review-reason {
-      display: block !important;
-      margin-top: 4px;
-      white-space: nowrap !important;
+      display: -webkit-box !important;
+      -webkit-box-orient: vertical !important;
+      -webkit-line-clamp: 2 !important;
+      margin-top: 3px;
+      white-space: normal !important;
       overflow: hidden !important;
-      text-overflow: ellipsis !important;
-      font-size: clamp(11px, .82vw, 14px) !important;
-      line-height: 1.08 !important;
-      max-height: none !important;
+      text-overflow: clip !important;
+      font-size: clamp(10px, .76vw, 13px) !important;
+      line-height: 1.05 !important;
+      max-height: 2.1em !important;
     }
   </style>
 </head>
@@ -161,7 +163,7 @@
     </section>
   </div>
 
-  <script src="questions.js?v=86"></script>
-  <script src="app.js?v=86"></script>
+  <script src="questions.js?v=87"></script>
+  <script src="app.js?v=87"></script>
 </body>
 </html>

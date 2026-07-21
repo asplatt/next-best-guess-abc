@@ -251,56 +251,61 @@ function renderFinalReview(q){
 
 function tightFinalLineFallback(question='', answer=''){
   const q=String(question||'').toLowerCase();
-  const a=String(answer||'No answer').trim();
-  const al=a.toLowerCase();
+  const al=String(answer||'').toLowerCase();
   const cap=line=>{
     line=String(line||'').replace(/\.{2,}|…/g,'').replace(/\s+/g,' ').replace(/[.?!]+$/,'').trim();
-    if(line.length>92) line=line.slice(0,92).replace(/\s+\S*$/,'').trim();
+    if(line.length>82) line=line.slice(0,82).replace(/\s+\S*$/,'').trim();
     return line+'.';
   };
   if(q.includes('holiday')){
-    if(/(ai|robot|machine|bot)/.test(al)) return cap(`${a} works if offices turn machine gratitude into an annual ritual`);
-    if(/(climate|earth|planet|water|ocean)/.test(al)) return cap(`${a} works if schools and brands can turn repair into a yearly ritual`);
-    if(/(sleep|rest|quiet|offline|detox)/.test(al)) return cap(`${a} has legs because burnout already speaks every language`);
-    return cap(`${a} works if the ritual is simple enough to copy worldwide`);
+    if(/(ai|robot|machine|bot)/.test(al)) return cap('Offices could turn machine gratitude into an annual ritual');
+    if(/(climate|earth|planet|water|ocean)/.test(al)) return cap('Schools and brands could turn environmental repair into a yearly ritual');
+    if(/(sleep|rest|quiet|offline|detox)/.test(al)) return cap('Burnout is global, making a shared day of rest easy to understand');
+    return cap('It needs a simple ritual that people everywhere can repeat');
   }
   if(q.includes('olympic sport')){
-    if(/drone/.test(al)) return cap(`${a} has speed, clean scoring, and enough crashes for prime time`);
-    if(/pickle/.test(al)) return cap(`${a} already has courts, sponsors, and suspiciously intense calves`);
-    if(/(slam|slamball|trampoline|dunk)/.test(al)) return cap(`${a} has contact, aerial highlights, and rules a TV audience can follow`);
-    if(/(esport|e-sport|gaming|video)/.test(al)) return cap(`${a} is too broad; the Olympics need one sport, not the whole internet`);
-    return cap(`${a} works if it becomes global, visual, and easy to score by 2040`);
+    if(/drone/.test(al)) return cap('It has speed, clear scoring, and enough crashes for prime time');
+    if(/pickle/.test(al)) return cap('It already has courts, sponsors, and a fast-growing global player base');
+    if(/(slam|slamball|trampoline|dunk)/.test(al)) return cap('It offers contact, aerial highlights, and rules viewers can follow');
+    if(/(esport|e-sport|gaming|video)/.test(al)) return cap('It is too broad; the Olympics need one defined event, not all gaming');
+    return cap('It must become global, visual, and easy to score by 2040');
   }
   if(q.includes('fashion trend')){
-    if(/(bell|flare)/.test(al)) return cap(`${a} has nostalgia, silhouette, and just enough bad judgment to return`);
-    if(/(baggy|oversized|wide)/.test(al)) return cap(`${a} has comfort, nostalgia, and enough celebrity photos to come roaring back`);
-    if(/(jean|denim|waist)/.test(al)) return cap(`${a} has resale nostalgia and a shape people can spot from space`);
-    return cap(`${a} can come back if it photographs clearly and annoys the right parents`);
+    if(/(bell|flare)/.test(al)) return cap('Nostalgia and a bold silhouette give it a credible comeback path');
+    if(/(baggy|oversized|wide)/.test(al)) return cap('Comfort, nostalgia, and celebrity adoption make a revival plausible');
+    if(/(jean|denim|waist)/.test(al)) return cap('Denim cycles reliably, and the silhouette is easy to revive and market');
+    return cap('A comeback needs a clear look, nostalgia, and visible celebrity adoption');
   }
   if(q.includes('collect instead')){
-    if(/(friend|human|conversation|relationship)/.test(al)) return cap(`${a} becomes collectible only if real connection turns into status`);
-    if(/(memory|experience|moment|dream)/.test(al)) return cap(`${a} works if it can be verified, displayed, and bragged about`);
-    if(/(ai|digital|avatar|data)/.test(al)) return cap(`${a} needs scarcity and proof before collectors treat it like treasure`);
-    return cap(`${a} works if it carries proof, scarcity, and social status`);
+    if(/(friend|human|conversation|relationship)/.test(al)) return cap('Real connection could gain status as synthetic interaction becomes common');
+    if(/(memory|experience|moment|dream)/.test(al)) return cap('It works if the experience can be verified, displayed, and shared');
+    if(/(ai|digital|avatar|data)/.test(al)) return cap('It needs scarcity and proof before collectors treat it as valuable');
+    return cap('Future collectibles still need scarcity, proof, and social status');
   }
   if(q.includes('ban private cars')){
-    if(/(san\s*fran|francisco|sf)/.test(al)) return cap('Eco-friendly, high-density, and already more Waymos than patience');
-    if(/(new york|nyc|manhattan)/.test(al)) return cap('New York has density, transit, and parking rage strong enough to become policy');
-    if(/paris/.test(al)) return cap('Paris already treats cars like guests who overstayed and blocked the view');
-    if(/(amsterdam|copenhagen|oslo|london|tokyo|singapore|barcelona)/.test(al)) return cap(`${a} has the density and policy muscle to make private cars optional`);
-    return cap(`${a} works if transit, density, and political will can beat driver outrage`);
+    if(/(san\s*fran|francisco|sf)/.test(al)) return cap('Density, climate policy, and autonomous transit make a ban plausible');
+    if(/(new york|nyc|manhattan)/.test(al)) return cap('Density and transit support it, but political resistance remains high');
+    if(/paris/.test(al)) return cap('Existing car-reduction policies and dense transit make it a leading candidate');
+    if(/(amsterdam|copenhagen|oslo|london|tokyo|singapore|barcelona)/.test(al)) return cap('Strong transit, density, and policy support make a full ban plausible');
+    return cap('It requires dense transit, political will, and public tolerance for change');
   }
-  return cap(`${a} works if it becomes visible, repeatable, and easy to brag about`);
+  return cap('The idea needs a clear adoption path, broad demand, and visible social value');
 }
 function compactFinalReason(reason, answer='', question=''){
-  const bad=/judged against the target year|future is bold|hates paperwork|three streaming|not a technology|not a future technology|not a technology or outcome|city name is not|basically screens|called basically|unless the question is about the future|not a direct answer unless|not a tangible future trend|the model|data trail|future path|category fit|exact fit|mixed fit|needs a clearer|not enough scale|clear evidence|possible, but|this idea needs|\.\.\.|…/i;
+  const bad=/judged against the target year|future is bold|hates paperwork|three streaming|not a technology|not a future technology|not a technology or outcome|city name is not|basically screens|called basically|unless the question is about the future|not a direct answer unless|not a tangible future trend|the model|data trail|future path|category fit|exact fit|mixed fit|needs a clearer|not enough scale|clear evidence|possible, but|this idea needs|\.{2,}|…/i;
   const ans = String(answer||'').trim();
   const tokens = ans.toLowerCase().split(/[^a-z0-9]+/).filter(x=>x.length>3);
-  const clean = (x='') => x.replace(/^[•\-–—\s]+/,'').replace(/^(why|likelihood|future|burn|forecast|oracle)\s*:\s*/i,'').replace(/\.{2,}|…/g,'').replace(/\s+/g,' ').replace(/[.?!]+$/,'').trim();
+  const escapedAns = ans.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const clean = (x='') => {
+    let line=String(x||'').replace(/^[•\-–—\s]+/,'').replace(/^(why|likelihood|future|burn|forecast|oracle)\s*:\s*/i,'').replace(/\.{2,}|…/g,'').replace(/\s+/g,' ').replace(/[.?!]+$/,'').trim();
+    if(escapedAns) line=line.replace(new RegExp('^'+escapedAns+'\\s*(?:is|has|works|could|can|would|needs|becomes)?\\s*','i'),'');
+    return line.trim();
+  };
   let lines = formatReasonBullets(reason).split(/\n+/).map(clean).filter(Boolean).filter(x=>!bad.test(x));
   let line = lines.find(x=>tokens.some(t=>x.toLowerCase().includes(t))) || lines.find(x=>/by\s+20\d\d|could|will|becomes|scales|global|city|transit|market/i.test(x)) || '';
   if(!line || bad.test(line) || line.length < 18) line = tightFinalLineFallback(question, answer).replace(/[.?!]+$/,'');
-  if(line.length > 110) line = tightFinalLineFallback(question, answer).replace(/[.?!]+$/,'');
+  if(escapedAns) line=line.replace(new RegExp('^'+escapedAns+'\\s*(?:is|has|works|could|can|would|needs|becomes)?\\s*','i'),'').trim();
+  if(line.length > 82) line = tightFinalLineFallback(question, answer).replace(/[.?!]+$/,'');
   if(/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|before|after|who)$/i.test(line)) line = tightFinalLineFallback(question, answer).replace(/[.?!]+$/,'');
   return line + '.';
 }
