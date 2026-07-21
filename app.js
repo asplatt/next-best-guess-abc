@@ -535,7 +535,7 @@ function buildOpenRevealData(q, count, showScores=false){
       player: state.playerNames[i],
       answer: state.openAnswers[i] || 'No answer entered',
       score: scored[i].score,
-      reason: `FACT: ${scored[i].fact}\nJOKE: ${scored[i].joke}`
+      reason: `${scored[i].fact}\n\n${scored[i].joke}`
     });
   }
   return { kicker:'REAL AI RESPONSE', title:q.revealTitle, body:'', awards, openAwards:true, single:false, scoresVisible:showScores };
