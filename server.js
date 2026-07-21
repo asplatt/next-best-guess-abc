@@ -30,7 +30,7 @@ function normalizeCacheText(x){
     .trim();
 }
 function cacheKeyFor(mode, question, answer){
-  return ['v3-complete-sentences', mode || 'unknown', normalizeCacheText(question), normalizeCacheText(answer)].join('::');
+  return ['round3-v10', mode || 'unknown', normalizeCacheText(question), normalizeCacheText(answer)].join('::');
 }
 function loadAnswerCache(){
   if (!ANSWER_CACHE_ENABLED) return {};
@@ -242,16 +242,6 @@ function parseScoredText(text){
   return { score: score ?? 72, reason };
 }
 
-function sentenceIsComplete(line=''){
-  const text = String(line || '').trim();
-  if (!text || !/[.!?]$/.test(text)) return false;
-  const body = text.replace(/[.!?]+$/, '').trim();
-  if (body.split(/\s+/).length < 6) return false;
-  if (/\b(if|and|or|but|because|although|while|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|before|after|against|within)\s*$/i.test(body)) return false;
-  if (/\b(this has a signal|not enough scale|target year|future path|category fit|needs a clearer)\b/i.test(body)) return false;
-  return true;
-}
-
 function normalizeTvSentence(value, fallback=''){
   let line = String(value || '')
     .replace(/```[\s\S]*?```/g, '')
@@ -261,51 +251,30 @@ function normalizeTvSentence(value, fallback=''){
     .replace(/[’]/g, "'")
     .replace(/\s+/g, ' ')
     .trim();
-  if (line && !/[.!?]$/.test(line)) line += '.';
-  if (!sentenceIsComplete(line)) {
-    line = String(fallback || '').replace(/\s+/g, ' ').trim();
-    if (line && !/[.!?]$/.test(line)) line += '.';
-  }
-  return sentenceIsComplete(line) ? line : 'The answer has a plausible route, but adoption depends on measurable demand and everyday usefulness.';
+  if (!line) line = String(fallback || '').trim();
+  if (!line) return '';
+  line = line.replace(/\s+([,.!?])/g, '$1');
+  if (!/[.!?]$/.test(line)) line += '.';
+  return line;
+}
+
+function isCompleteTvSentence(value, {minWords=7, maxWords=24}={}){
+  const line = normalizeTvSentence(value);
+  if (!line) return false;
+  const words = line.replace(/^[•\-–—\s]+/, '').split(/\s+/).filter(Boolean);
+  if (words.length < minWords || words.length > maxWords) return false;
+  if (!/[.!?]$/.test(line)) return false;
+  if (/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|before|after|if|against|within|since|because|is|are|was|were|be|been|being|would|could|should|might|may)\s*[.!?]$/i.test(line)) return false;
+  if (/\b(this has a signal|not enough scale|target year|future still wants|could become .* if\.|payoff is\.|weigh the scale|behavior within)\b/i.test(line)) return false;
+  return true;
 }
 
 function cleanReasonForDisplay(reason){
   const raw = String(reason || '').trim();
-  const fallback = [
-    'This answer has a believable signal, but the path to scale is uncertain.',
-    'By the target year, adoption depends on cost, trust, and everyday usefulness.',
-    'The oracle likes the ambition, but the future still wants receipts.'
-  ];
-  if (!raw) return fallback.map(x => `• ${x}`).join('\n');
-
-  const fieldMap = {};
-  raw.split(/\n+/).forEach(line => {
-    const m = line.trim().match(/^(WHY|LIKELIHOOD|PROBABILITY|SCALE|FUTURE|BURN|ORACLE BURN|BLOCK)\s*:\s*(.+)$/i);
-    if (m) {
-      const key = m[1].toUpperCase().replace('ORACLE BURN','BURN').replace('PROBABILITY','LIKELIHOOD').replace('SCALE','LIKELIHOOD');
-      if (key !== 'BLOCK') fieldMap[key] = m[2].trim();
-    }
-  });
-
-  let lines = [];
-  if (fieldMap.WHY || fieldMap.LIKELIHOOD || fieldMap.FUTURE || fieldMap.BURN) {
-    if (fieldMap.WHY) lines.push(fieldMap.WHY);
-    if (fieldMap.LIKELIHOOD) lines.push(fieldMap.LIKELIHOOD);
-    if (fieldMap.FUTURE && lines.length < 2) lines.push(fieldMap.FUTURE);
-    lines.push(fieldMap.BURN || fallback[2]);
-  } else {
-    const bullets = raw.split(/\n+/).map(x => x.trim()).filter(x => /^[•\-–—]/.test(x));
-    if (bullets.length) lines = bullets;
-    else lines = raw.match(/[^.!?]+[.!?]/g) || [raw];
-  }
-
-  const bad = /judged against the target year|the model|data trail|exact fit|mixed fit|category fit/i;
-  let out = lines
-    .map((x, i) => normalizeTvSentence(x, fallback[i]))
-    .filter(Boolean)
-    .filter(x => !bad.test(x));
-  for (const f of fallback) { if (out.length >= 3) break; out.push(f); }
-  return out.slice(0, 3).map(line => `• ${line}`).join('\n');
+  const bullets = raw.split(/\n+/)
+    .map(x => normalizeTvSentence(x))
+    .filter(Boolean);
+  return bullets.slice(0,3).map(line => `• ${line}`).join('\n');
 }
 
 function reasonLooksBroken(reason){
@@ -314,20 +283,22 @@ function reasonLooksBroken(reason){
 }
 
 function bulletReason({fit='Forecast fit', path='Future path', friction='Friction', score='Score logic', joke='The oracle has spoken, and somehow it still has to validate parking.'} = {}){
-  const finish = x => {
-    let line = String(x || '')
-      .replace(/\s+/g, ' ')
-      .replace(/^[•\-\s]+/, '')
-      .replace(/^(Fit|Why|Likelihood|Probability|Scale|Future|Future path|Friction|Block|Score logic|Forecast|Joke|Evidence|Adoption path|Human behavior|Burn|Oracle Burn)\s*:\s*/i, '')
-      .trim();
-    if (!line) return '';
-    if (!/[.?!]$/.test(line)) line += '.';
-    return line;
+  const clean = x => String(x || '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[•\-\s]+/, '')
+    .replace(/^(Fit|Why|Likelihood|Probability|Scale|Future|Future path|Friction|Block|Score logic|Forecast|Joke|Evidence|Adoption path|Human behavior|Burn|Oracle Burn)\s*:\s*/i, '')
+    .trim()
+    .replace(/[.?!]*$/, '');
+  const shorten = (x, max=70) => {
+    x = clean(x);
+    if (x.length > max) x = x.slice(0, max).replace(/\s+\S*$/, '').trim();
+    if (/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at)$/i.test(x)) x = x.replace(/\s+\S+$/,'').trim();
+    return x;
   };
   return [
-    `• ${finish(fit)}`,
-    `• ${finish(path || score || friction)}`,
-    `• ${finish(joke)}`
+    `• ${shorten(fit)}.`,
+    `• ${shorten(path || score || friction)}.`,
+    `• ${shorten(joke, 76)}.`
   ].join('\n');
 }
 
@@ -666,46 +637,55 @@ function reasonContainsBadScreenCopy(reason){
 function polishScreenCopy(reason, question='', answer=''){
   const q = String(question || '').toLowerCase();
   const a = String(answer || '').trim();
+  const al = a.toLowerCase();
   const bannedLine = /judged against the target year|future is bold|hates paperwork|three streaming|not a technology|not a future technology|not a technology or outcome|city name is not|basically screens|called basically|unless the question is about the future|not a direct answer unless|not a tangible future trend|\bthe model\b|data trail|future path|mixed signal|strong category|category fit|clearer signal|reliable data|needs a clearer|the answer needs|exact fit|mixed fit|direct answer|the ai wants|oracle wants stronger|future squints|adoption logic|strong category if|if it leaves|monthly\s*\.?$|who\.?$/i;
-  const finish = (line='') => {
-    line = String(line)
-      .replace(/^[•\-–—\s]+/, '')
-      .replace(/^(WHY|LIKELIHOOD|PROBABILITY|SCALE|FUTURE|BURN|ORACLE BURN|FIT|FRICTION|BLOCK|SCORE LOGIC|FORECAST|JOKE|EVIDENCE|ADOPTION PATH|HUMAN BEHAVIOR)\s*:\s*/i, '')
-      .replace(/^(exact|mixed|strong|weak)\s+(fit|signal|answer|category)\s*[:\-]?\s*/i, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+  const strip = (line='') => String(line)
+    .replace(/^[•\-–—\s]+/, '')
+    .replace(/^(WHY|LIKELIHOOD|PROBABILITY|SCALE|FUTURE|BURN|ORACLE BURN|FIT|FRICTION|BLOCK|SCORE LOGIC|FORECAST|JOKE|EVIDENCE|ADOPTION PATH|HUMAN BEHAVIOR)\s*:\s*/i, '')
+    .replace(/^(exact|mixed|strong|weak)\s+(fit|signal|answer|category)\s*[:\-]?\s*/i, '')
+    .replace(/^this answer\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const complete = (line, max=82) => {
+    line = strip(line).replace(/[“”]/g, '"').replace(/[’]/g, "'");
     if (!line || bannedLine.test(line)) return '';
-    if (!/[.!?]$/.test(line)) line += '.';
-    return line;
+    line = line.replace(/[.?!…]+$/,'').replace(/[,;:]+$/,'').trim();
+    if (line.length > max) line = line.slice(0, max).replace(/\s+\S*$/,'').trim();
+    if (/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|before|after|who)$/i.test(line)) return '';
+    if (!line) return '';
+    return line + '.';
   };
 
   let rawLines = String(reason || '')
     .replace(/```[\s\S]*?```/g,'')
     .split(/\n+|\s*[•]\s*/)
-    .map(finish)
-    .filter(Boolean);
+    .map(strip)
+    .filter(Boolean)
+    .filter(x => !bannedLine.test(x));
 
+  // If the model returned a paragraph, split it into sentences.
   if (rawLines.length < 2) {
-    rawLines = (String(reason || '').replace(/\s+/g,' ').match(/[^.!?]+[.!?]/g) || [])
-      .map(finish)
-      .filter(Boolean);
+    rawLines = String(reason || '').replace(/\s+/g,' ').match(/[^.!?]+[.!?]/g) || rawLines;
+    rawLines = rawLines.map(strip).filter(Boolean).filter(x => !bannedLine.test(x));
   }
 
-  const fallback = universalFallbackBullets(q, a).map(finish).filter(Boolean);
+  const fallback = universalFallbackBullets(q, a);
   const out = [];
   for (const line of rawLines) {
-    if (out.length >= 3) break;
-    if (!out.some(x => x.toLowerCase() === line.toLowerCase())) out.push(line);
-  }
-  for (const line of fallback) {
     if (out.length >= 2) break;
-    if (!out.some(x => x.toLowerCase() === line.toLowerCase())) out.push(line);
+    const cleaned = complete(line, 70);
+    if (cleaned && !out.some(x => x.toLowerCase() === cleaned.toLowerCase())) out.push(cleaned);
   }
-  while (out.length < 2) out.push('The idea has a plausible path, but adoption still depends on cost, trust, and demand.');
-
-  let joke = out.length >= 3 ? out[2] : '';
-  if (!joke || bannedLine.test(joke)) joke = finish(answerSpecificJoke(question, answer));
-  return [out[0], out[1], joke].map(line => `• ${line}`).join('\n');
+  // Keep the live joke only if it is complete and not generic; otherwise use a specific joke.
+  let jokeCandidate = rawLines.length ? rawLines[rawLines.length - 1] : '';
+  let joke = complete(jokeCandidate, 70);
+  if (!joke || out.some(x => x.toLowerCase() === joke.toLowerCase())) joke = answerSpecificJoke(question, answer).replace(/[.?!]*$/,'') + '.';
+  while (out.length < 2 && fallback.length) {
+    const f = complete(fallback.shift(), 86);
+    if (f && !/This has a signal|target year|mass adoption/i.test(f)) out.push(f);
+  }
+  out.push(joke);
+  return out.slice(0,3).map(line => `• ${line}`).join('\n');
 }
 
 function universalFallbackBullets(q='', a=''){
@@ -733,6 +713,7 @@ function finalOneLineFallback(question='', answer=''){
   const al = a.toLowerCase();
   const cap = (line) => {
     line = String(line || '').replace(/\.{2,}|…/g,'').replace(/\s+/g,' ').replace(/[.?!]+$/,'').trim();
+    if (line.length > 110) line = line.slice(0,110).replace(/\s+\S*$/,'').trim();
     return line + '.';
   };
   if (q.includes('holiday')) {
@@ -787,6 +768,7 @@ function oneLineFinalReason(reason, question='', answer=''){
   line = strip(line).replace(/[.?!…]+$/,'').trim();
   const tooGeneric = !line || banned.test(line) || line.length < 18 || /\.{2,}|…|plausible future signal|runaway forecast|mass adoption|target year|not enough scale|clear evidence|possible, but|this idea needs|ai wants/i.test(line);
   if (tooGeneric) line = finalOneLineFallback(question, answer).replace(/[.?!…]+$/,'');
+  if (line.length > 110) line = line.slice(0,110).replace(/\s+\S*$/,'').trim();
   if (/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|before|after|who)$/i.test(line)) line = finalOneLineFallback(question, answer).replace(/[.?!…]+$/,'');
   return line + '.';
 }
@@ -838,9 +820,8 @@ function reviewFinalResult(result, question, answer){
 function reviewScoredResult(result, question, answer){
   const reviewed = { ...result };
   reviewed.score = clamp(reviewed.score || 72);
-  reviewed.reason = cleanReasonForDisplay(reviewed.reason || '');
-  // Do not let the reviewer turn unknown live answers into canned rubric language.
-  reviewed.reason = polishScreenCopy(reviewed.reason, question, answer);
+  const lines = String(reviewed.reason || '').split(/\n+/).map(x => normalizeTvSentence(x)).filter(Boolean);
+  reviewed.reason = lines.slice(0,3).map(x => `• ${x}`).join('\n');
   return reviewed;
 }
 
@@ -890,65 +871,136 @@ Below 40 = barely answers the question.`;
   return reviewFinalResult(clampScoreToGuardrails(parsed, question, answer), question, answer);
 }
 
+function deterministicOpenBullets(question='', answer='', playerNum=1){
+  const q = String(question || '').toLowerCase();
+  const a = String(answer || 'No answer given').trim();
+  const displayAnswer = a ? a.charAt(0).toUpperCase() + a.slice(1) : 'No answer given';
+  const al = a.toLowerCase();
+  if (/\b(health\s*)?insurance|insurer|premium|deductible/.test(q)) {
+    if (/(toilet|bathroom|urine|stool|bowel)/.test(al)) return [
+      `${displayAnswer} could reveal hydration, digestion, medication use, and early signs of illness.`,
+      `Insurers would value passive medical data, although privacy and consent remain major obstacles.`,
+      `Your deductible may soon know more about your bathroom habits than your spouse.`
+    ];
+    if (/(neighbor|neighbour|community|kindness|treat people)/.test(al)) return [
+      `${displayAnswer} could be measured through complaints, disputes, cooperation, and community app activity.`,
+      `Insurers may connect stronger social relationships with lower stress and fewer costly health problems.`,
+      `Being nice to Gary next door may soon qualify as preventive medicine.`
+    ];
+    return [
+      `${displayAnswer} could matter if phones or sensors can measure it passively and consistently.`,
+      `Insurers would need evidence that the behavior predicts claims without creating legal problems.`,
+      answerSpecificJoke(question, answer, playerNum) + '.'
+    ];
+  }
+  if (q.includes('elective surgery')) {
+    if (/(height|leg length|limb length|extension)/.test(al)) return [
+      `${displayAnswer} have a visible status payoff, but recovery remains expensive, painful, and medically serious.`,
+      `It could grow by 2045, although safer cosmetic procedures are more likely to dominate.`,
+      `Elevator shoes may survive because hospitals still charge for parking.`
+    ];
+    if (/(third nipple|extra nipple)/.test(al)) return [
+      `${displayAnswer} could attract a body-modification niche, but mainstream demand would remain extremely limited.`,
+      `The procedure offers little practical payoff compared with beauty, aging, or longevity treatments.`,
+      `The future may add features, but probably not another cup size category.`
+    ];
+    return [
+      `${displayAnswer} needs a clear consumer benefit before it can become a routine elective procedure.`,
+      `Mass adoption depends on safety, affordability, visible payoff, and cultural normalization by 2045.`,
+      answerSpecificJoke(question, answer, playerNum) + '.'
+    ];
+  }
+  return [
+    `${displayAnswer} has a plausible route forward if cost, access, and public acceptance improve.`,
+    `The strongest forecast depends on measurable demand rather than novelty alone.`,
+    answerSpecificJoke(question, answer, playerNum) + '.'
+  ];
+}
+
 function parseOpenJson(text, question, answers){
   const json = parseModelJson(text);
-  if (!json || !Array.isArray(json.players) || json.players.length < 2) throw new Error('missing players array');
-  return json.players.slice(0,2).map((p, i) => {
-    const rawBullets = Array.isArray(p.bullets) ? p.bullets : [];
-    const fall = cleanReasonForDisplay(fallbackReasonFor(question, answers[i])).split(/\n+/).map(x => x.replace(/^•\s*/,''));
-    const bullets = rawBullets.slice(0,3).map((x, j) => normalizeTvSentence(x, fall[j])).filter(Boolean);
-    while (bullets.length < 3) bullets.push(fall[bullets.length] || 'The future still wants stronger evidence.');
-    return { score: clamp(p.score), reason: bullets.slice(0,3).map(x => `• ${x}`).join('\n') };
+  if (!json || !Array.isArray(json.players) || json.players.length !== 2) throw new Error('expected exactly two players');
+  return json.players.map((p, i) => {
+    if (!Array.isArray(p.bullets) || p.bullets.length !== 3) throw new Error(`player ${i+1} needs exactly three bullets`);
+    const bullets = p.bullets.map(x => normalizeTvSentence(x));
+    bullets.forEach((line, j) => {
+      if (!isCompleteTvSentence(line, {minWords:8, maxWords:24})) throw new Error(`player ${i+1} bullet ${j+1} is incomplete or badly sized`);
+    });
+    return { score: clamp(p.score), reason: bullets.map(x => `• ${x}`).join('\n') };
   });
+}
+
+async function requestOpenJson(system, user){
+  const text = await callOpenAIText(system, user);
+  return text;
 }
 
 async function scoreOpenMatch(payload){
   const answers = (payload.answers || []).map(normalizeAnswer);
   const q = payload.question || '';
-  const system = `You are the live judging voice for NEXT BEST GUESS, a premium ABC game-show pitch.
-Compare the two exact spoken answers against the exact question and target year. Never rewrite either answer.
-Use adoption, cost, regulation, incentives, historical analogs, technology readiness, institutions, and human behavior.
-Write like a sharp game-show oracle: specific, confident, concise, and lightly funny.
+  const system = `You are the live judging voice for NEXT BEST GUESS, a premium network game show.
+Judge each exact contestant answer against the exact question and target year. Never rewrite an answer into a better idea.
 
-Return ONLY valid JSON with exactly this shape:
+Return ONLY valid JSON with exactly this structure:
 {"players":[
-  {"score":82,"bullets":["Complete forecast sentence.","Complete scale or friction sentence.","Complete answer-specific host joke."]},
-  {"score":74,"bullets":["Complete forecast sentence.","Complete scale or friction sentence.","Complete answer-specific host joke."]}
+  {"score":82,"bullets":["Sentence one.","Sentence two.","Sentence three."]},
+  {"score":74,"bullets":["Sentence one.","Sentence two.","Sentence three."]}
 ]}
 
-Rules:
-Each bullet must be a complete, natural spoken sentence of 10 to 24 words.
-The first bullet explains how the exact answer could happen. The second explains scale or friction. The third is a specific host joke.
-Never end a bullet on a preposition, article, conjunction, or clipped phrase.
-The third bullet for each player must be a different joke tied to that player's answer.
-Do not use markdown, labels, commentary, or text outside the JSON.`;
+For each player:
+1. Bullet one explains how the exact answer could happen or why it probably will not.
+2. Bullet two explains the main adoption driver or obstacle.
+3. Bullet three is a host-ready joke specifically about that exact answer.
+
+Every bullet must be one complete natural sentence between 8 and 24 words.
+Never use fragments, sentence stubs, rubric language, or phrases such as "this has a signal," "not enough scale," or "target year."
+Never end with if, against, within, because, for, of, to, the, or another dangling word.
+Do not use markdown or any text outside the JSON.`;
   const user = `ABC pitch context: executives are playing live.
 Round: Round 3: Crystal Brawl
 Question: ${q}
 ${lensForQuestion(q)}
-Player 1 answer: ${answers[0] || 'No answer given'}
-Player 2 answer: ${answers[1] || 'No answer given'}
+Player 1 exact answer: ${answers[0] || 'No answer given'}
+Player 2 exact answer: ${answers[1] || 'No answer given'}
 
 Score guide:
-93-97 = almost perfect future call.
-85-92 = very strong and likely to scale.
-74-84 = solid future logic with some friction.
-60-73 = possible but partial, niche, or adjacent.
-40-59 = clever but weak, overregulated, or wrong category.
+93-97 = exceptionally likely future outcome.
+85-92 = strong and likely to scale.
+74-84 = plausible with meaningful friction.
+60-73 = possible but niche, adjacent, or difficult.
+40-59 = weak, overregulated, or poorly matched.
 Below 40 = barely answers the question.`;
-  const text = await callOpenAIText(system, user);
-  let players;
+
+  let firstText = '';
   try {
-    players = parseOpenJson(text, q, answers);
-  } catch (e) {
-    console.warn('Structured Round 3 parse failed; using legacy parser:', e.message);
-    players = [
-      reviewScoredResult(clampScoreToGuardrails(parsePlayerBlock(text,1), q, answers[0] || 'No answer given'), q, answers[0] || 'No answer given'),
-      reviewScoredResult(clampScoreToGuardrails(parsePlayerBlock(text,2), q, answers[1] || 'No answer given'), q, answers[1] || 'No answer given')
-    ];
+    firstText = await requestOpenJson(system, user);
+    const players = parseOpenJson(firstText, q, answers);
+    return { live: true, players: ensureDistinctLastJokes(players, q, answers) };
+  } catch (firstError) {
+    console.warn('Round 3 first response rejected:', firstError.message);
+    try {
+      const repairSystem = `Repair malformed game-show scoring JSON. Return ONLY valid JSON in the requested structure.
+Each player must have exactly three complete natural sentences between 8 and 24 words.
+Do not shorten, summarize, or preserve broken fragments. Rewrite every defective sentence completely.`;
+      const repairUser = `Question: ${q}
+Player 1 exact answer: ${answers[0] || 'No answer given'}
+Player 2 exact answer: ${answers[1] || 'No answer given'}
+Broken response:
+${firstText}
+
+Produce clean replacement JSON now.`;
+      const repairedText = await requestOpenJson(repairSystem, repairUser);
+      const players = parseOpenJson(repairedText, q, answers);
+      return { live: true, repaired: true, players: ensureDistinctLastJokes(players, q, answers) };
+    } catch (repairError) {
+      console.warn('Round 3 repair response rejected:', repairError.message);
+      const players = answers.map((answer, i) => ({
+        score: fallbackScoreFor(q, answer, i),
+        reason: deterministicOpenBullets(q, answer, i+1).map(x => `• ${normalizeTvSentence(x)}`).join('\n')
+      }));
+      return { live: false, deterministicFallback: true, players: ensureDistinctLastJokes(players, q, answers) };
+    }
   }
-  players = players.map((p, i) => reviewScoredResult(clampScoreToGuardrails(p, q, answers[i] || 'No answer given'), q, answers[i] || 'No answer given'));
-  return { live: true, players: ensureDistinctLastJokes(players, q, answers) };
 }
 
 async function evaluateWithOpenAI(payload) {
@@ -1027,4 +1079,14 @@ server.on('error', (err) => {
   }
   process.exit(1);
 });
-server.listen(PORT, () => console.log(`Next Best Guess server v80-abc-self-contained running at http://localhost:${PORT}`));
+if (require.main === module) {
+  server.listen(PORT, () => console.log(`Next Best Guess server v81-structured-round3 running at http://localhost:${PORT}`));
+}
+module.exports = {
+  normalizeTvSentence,
+  isCompleteTvSentence,
+  deterministicOpenBullets,
+  parseOpenJson,
+  scoreOpenMatch,
+  cleanReasonForDisplay
+};

@@ -251,6 +251,7 @@ function tightFinalLineFallback(question='', answer=''){
   const al=a.toLowerCase();
   const cap=line=>{
     line=String(line||'').replace(/\.{2,}|…/g,'').replace(/\s+/g,' ').replace(/[.?!]+$/,'').trim();
+    if(line.length>92) line=line.slice(0,92).replace(/\s+\S*$/,'').trim();
     return line+'.';
   };
   if(q.includes('holiday')){
@@ -497,30 +498,13 @@ async function runLiveEvaluation(q){
 function clampScore(n){ n=Number(n); if(!Number.isFinite(n)) return 70; return Math.max(25, Math.min(96, Math.round(n))); }
 function formatReasonBullets(reason){
   const raw = String(reason || '').trim();
-  const fallback = [
-    'This answer has a believable signal, but the path to scale is uncertain.',
-    'By the target year, adoption depends on cost, trust, and usefulness.',
-    'The oracle likes the ambition, but the future still wants receipts.'
-  ];
-  const cleanSentence = (value, fallbackText='') => {
-    let line = String(value || '')
-      .replace(/^[•\-–—\s]+/, '')
-      .replace(/^(Fit|Why|Likelihood|Probability|Scale|Future|Future path|Friction|Block|Score logic|Forecast|Joke|Evidence|Adoption path|Human behavior|Burn|Oracle Burn)\s*:\s*/i, '')
-      .replace(/[“”]/g,'"').replace(/[’]/g,"'")
-      .replace(/\s+/g,' ').trim();
-    if(!line) line = fallbackText;
-    line = line.replace(/[,;:]$/, '');
-    if(line && !/[.!?]$/.test(line)) line += '.';
-    const body = line.replace(/[.!?]+$/, '').trim();
-    if(/\b(if|and|or|but|because|although|while|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|before|after|against|within)\s*$/i.test(body)) return fallbackText;
-    return line;
-  };
-  if(!raw) return fallback.map(x=>'• '+x).join('\n');
-  const bulletLines = raw.split(/\n+/).map(x=>x.trim()).filter(x=>/^[•\-–—]/.test(x));
-  let arr = bulletLines.length ? bulletLines : (raw.match(/[^.!?]+[.!?]/g) || [raw]);
-  let out = arr.slice(0,3).map((x,i)=>cleanSentence(x,fallback[i])).filter(Boolean);
-  for(const f of fallback){ if(out.length>=3) break; out.push(f); }
-  return out.slice(0,3).map(x=>'• '+x).join('\n');
+  if(!raw) return '';
+  const lines = raw.split(/\n+/)
+    .map(line => line.replace(/^[•\-–—\s]+/, '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(0,3)
+    .map(line => /[.!?]$/.test(line) ? line : line + '.');
+  return lines.map(line => '• ' + line).join('\n');
 }
 
 function formatOpenReasonBullets(reason){
