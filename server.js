@@ -10,6 +10,7 @@ const ROOT = __dirname;
 const KEY_FILE = path.join(ROOT, 'api_key.txt');
 const CACHE_FILE = process.env.ANSWER_CACHE_FILE || path.join(ROOT, 'answer_cache.json');
 const ANSWER_CACHE_ENABLED = process.env.DISABLE_ANSWER_CACHE !== '1';
+const ANSWER_CACHE_VERSION = 'v3-natural-tv-copy';
 
 function getApiKey(){
   if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim()) return process.env.OPENAI_API_KEY.trim();
@@ -30,7 +31,7 @@ function normalizeCacheText(x){
     .trim();
 }
 function cacheKeyFor(mode, question, answer){
-  return [mode || 'unknown', normalizeCacheText(question), normalizeCacheText(answer)].join('::');
+  return [ANSWER_CACHE_VERSION, mode || 'unknown', normalizeCacheText(question), normalizeCacheText(answer)].join('::');
 }
 function loadAnswerCache(){
   if (!ANSWER_CACHE_ENABLED) return {};
@@ -307,25 +308,22 @@ function reasonLooksBroken(reason){
 }
 
 function bulletReason({fit='Forecast fit', path='Future path', friction='Friction', score='Score logic', joke='The oracle has spoken, and somehow it still has to validate parking.'} = {}){
-  const clean = x => String(x || '')
-    .replace(/\s+/g, ' ')
-    .replace(/^[•\-\s]+/, '')
-    .replace(/^(Fit|Why|Likelihood|Probability|Scale|Future|Future path|Friction|Block|Score logic|Forecast|Joke|Evidence|Adoption path|Human behavior|Burn|Oracle Burn)\s*:\s*/i, '')
-    .trim()
-    .replace(/[.?!]*$/, '');
-  const shorten = (x, max=70) => {
-    x = clean(x);
-    if (x.length > max) x = x.slice(0, max).replace(/\s+\S*$/, '').trim();
-    if (/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at)$/i.test(x)) x = x.replace(/\s+\S+$/,'').trim();
-    return x;
+  const complete = (value, fallback='') => {
+    let line = String(value || fallback || '')
+      .replace(/^[•\-–—\s]+/, '')
+      .replace(/^(Fit|Why|Likelihood|Probability|Scale|Future|Future path|Friction|Block|Score logic|Forecast|Joke|Evidence|Adoption path|Human behavior|Burn|Oracle Burn)\s*:\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/[.?!]+$/, '');
+    if (!line) line = fallback;
+    return line ? `${line}.` : '';
   };
   return [
-    `• ${shorten(fit)}.`,
-    `• ${shorten(path || score || friction)}.`,
-    `• ${shorten(joke, 76)}.`
+    `• ${complete(fit, 'This answer has a measurable signal insurers could use')}`,
+    `• ${complete(path || score || friction, 'The path to scale depends on trust and medical value')}`,
+    `• ${complete(joke, 'The future calls it wellness because surveillance tested poorly')}`
   ].join('\n');
 }
-
 
 function lastBulletText(reason){
   const lines = String(reason || '').split(/\n+/).map(x => x.trim()).filter(Boolean);
@@ -896,7 +894,56 @@ Below 40 = barely answers the question.`;
   return reviewFinalResult(clampScoreToGuardrails(parsed, question, answer), question, answer);
 }
 
-function parseOpenJson(text, question, answers){
+function answerWords(answer=''){
+  return String(answer || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3);
+}
+
+function naturalBulletIssues(line, answer='', isJoke=false, requireAnswer=false){
+  const text = String(line || '').replace(/^[•\-–—\s]+/, '').trim();
+  const words = text.split(/\s+/).filter(Boolean);
+  const issues = [];
+  if (words.length < 10 || words.length > 24) issues.push('must contain 10 to 24 words');
+  if (!/[.!?]$/.test(text)) issues.push('must end as a complete sentence');
+  if (/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|within)$/i.test(text.replace(/[.!?]$/, ''))) issues.push('ends with a clipped word');
+  if (/\b(behavior within|tracking time spent|cannot easily or legally monitor|this answer|the model|exact fit|mixed fit|category fit|future path|data trail)\b/i.test(text)) issues.push('contains compressed rubric language');
+  if (requireAnswer && !isJoke) {
+    const tokens = answerWords(answer);
+    if (tokens.length && !tokens.some(t => text.toLowerCase().includes(t))) issues.push('must explicitly connect to the contestant answer');
+  }
+  return issues;
+}
+
+async function repairOpenPlayers(apiText, question, answers, players){
+  const issueLines = [];
+  players.forEach((p, i) => {
+    const bullets = String(p.reason || '').split(/\n+/).map(x => x.replace(/^•\s*/, '')).filter(Boolean);
+    bullets.forEach((b, j) => {
+      const issues = naturalBulletIssues(b, answers[i], j === 2, j === 0);
+      if (issues.length) issueLines.push(`Player ${i+1} bullet ${j+1}: ${issues.join('; ')}`);
+    });
+  });
+  if (!issueLines.length) return players;
+
+  const system = `You are a senior game-show copy editor. Repair awkward AI judging copy for NEXT BEST GUESS.
+Return ONLY valid JSON using the exact players/score/bullets shape supplied.
+Keep each existing score unchanged.
+Each player must have exactly three natural, spoken-English sentences:
+1. Explain how the exact answer could realistically be measured or emerge.
+2. Explain why it matters and what helps or blocks mass adoption.
+3. End with a short, answer-specific host joke.
+Each sentence must contain 10 to 24 words. Never compress grammar, use fragments, or use rubric language.`;
+  const user = `Question: ${question}
+Player 1 exact answer: ${answers[0]}
+Player 2 exact answer: ${answers[1]}
+Problems to repair:
+${issueLines.join('\n')}
+Original model output:
+${apiText}`;
+  const repairedText = await callOpenAIText(system, user);
+  return parseOpenJson(repairedText, question, answers, false);
+}
+
+function parseOpenJson(text, question, answers, enforceNatural=true){
   const json = parseModelJson(text);
   if (!json || !Array.isArray(json.players) || json.players.length < 2) throw new Error('missing players array');
   return json.players.slice(0,2).map((p, i) => {
@@ -904,6 +951,12 @@ function parseOpenJson(text, question, answers){
     const fall = cleanReasonForDisplay(fallbackReasonFor(question, answers[i])).split(/\n+/).map(x => x.replace(/^•\s*/,''));
     const bullets = rawBullets.slice(0,3).map((x, j) => normalizeTvSentence(x, fall[j])).filter(Boolean);
     while (bullets.length < 3) bullets.push(fall[bullets.length] || 'The future still wants stronger evidence.');
+    if (enforceNatural) {
+      bullets.forEach((bullet, j) => {
+        const issues = naturalBulletIssues(bullet, answers[i], j === 2, j === 0);
+        if (issues.length) throw new Error(`player ${i+1} bullet ${j+1}: ${issues.join(', ')}`);
+      });
+    }
     return { score: clamp(p.score), reason: bullets.slice(0,3).map(x => `• ${x}`).join('\n') };
   });
 }
@@ -923,10 +976,12 @@ Return ONLY valid JSON with exactly this shape:
 ]}
 
 Rules:
-Each bullet must be a complete sentence of 7 to 15 words.
-Each bullet must be understandable without hidden context.
+Each bullet must be a natural, complete sentence of 10 to 24 words.
+Bullet 1 must explicitly name or clearly repeat the contestant's exact answer and explain how it could be measured or emerge.
+Bullet 2 must explain why insurers or society would care, including scale, value, trust, regulation, or friction.
+Bullet 3 must be a short, different, host-ready joke tied specifically to that player's answer.
+Use natural spoken English. Never compress grammar to save space. Never write fragments such as 'behavior within' or 'tracking time spent'.
 Never end a bullet on a preposition, article, conjunction, or clipped phrase.
-The third bullet for each player must be a different joke tied to that player's answer.
 Do not use markdown, labels, commentary, or text outside the JSON.`;
   const user = `ABC pitch context: executives are playing live.
 Round: Round 3: Crystal Brawl
@@ -947,11 +1002,17 @@ Below 40 = barely answers the question.`;
   try {
     players = parseOpenJson(text, q, answers);
   } catch (e) {
-    console.warn('Structured Round 3 parse failed; using legacy parser:', e.message);
-    players = [
-      reviewScoredResult(clampScoreToGuardrails(parsePlayerBlock(text,1), q, answers[0] || 'No answer given'), q, answers[0] || 'No answer given'),
-      reviewScoredResult(clampScoreToGuardrails(parsePlayerBlock(text,2), q, answers[1] || 'No answer given'), q, answers[1] || 'No answer given')
-    ];
+    console.warn('Round 3 copy needs repair:', e.message);
+    try {
+      const loosePlayers = parseOpenJson(text, q, answers, false);
+      players = await repairOpenPlayers(text, q, answers, loosePlayers);
+    } catch (repairError) {
+      console.warn('Structured Round 3 repair failed; using safe fallback:', repairError.message);
+      players = answers.map((answer, i) => reviewScoredResult({
+        score: fallbackScoreFor(q, answer, i),
+        reason: fallbackReasonFor(q, answer)
+      }, q, answer));
+    }
   }
   players = players.map((p, i) => reviewScoredResult(clampScoreToGuardrails(p, q, answers[i] || 'No answer given'), q, answers[i] || 'No answer given'));
   return { live: true, players: ensureDistinctLastJokes(players, q, answers) };
@@ -995,7 +1056,7 @@ async function evaluateWithOpenAI(payload) {
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return send(res, 204, {});
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  if (url.pathname === '/api/health') return send(res, 200, { ok: true, serverVersion: 'v80-abc-answer-cache' , model: MODEL, fallbackModel: FALLBACK_MODEL, reasoningEffort: REASONING_EFFORT, hasKey: Boolean(getApiKey()), keySource: process.env.OPENAI_API_KEY ? 'environment' : (getApiKey() ? 'api_key.txt' : 'none'), cache: cacheStats() });
+  if (url.pathname === '/api/health') return send(res, 200, { ok: true, serverVersion: 'v81-natural-tv-copy' , model: MODEL, fallbackModel: FALLBACK_MODEL, reasoningEffort: REASONING_EFFORT, hasKey: Boolean(getApiKey()), keySource: process.env.OPENAI_API_KEY ? 'environment' : (getApiKey() ? 'api_key.txt' : 'none'), cache: cacheStats() });
   if (url.pathname === '/api/cache/status') return send(res, 200, { ok: true, cache: cacheStats() });
   if (url.pathname === '/api/evaluate' && req.method === 'POST') {
     try {
@@ -1033,4 +1094,4 @@ server.on('error', (err) => {
   }
   process.exit(1);
 });
-server.listen(PORT, () => console.log(`Next Best Guess server v80-abc-self-contained running at http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`Next Best Guess server v81-natural-tv-copy running at http://localhost:${PORT}`));
