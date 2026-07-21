@@ -1,0 +1,5 @@
+{
+  "scripts": { "start": "node server.js" },
+  "dependencies": {},
+  "engines": { "node": ">=18" }
+}

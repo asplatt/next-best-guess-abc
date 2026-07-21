@@ -1,0 +1,1 @@
+UNZIP THIS PACKAGE. In GitHub, open the existing next_best_guess_abc_hosted_demo folder, choose Add file > Upload files, then upload ALL files from this folder and commit. Do not upload the ZIP itself.
