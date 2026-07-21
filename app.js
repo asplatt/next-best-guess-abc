@@ -236,9 +236,13 @@ function renderFinalReview(q){
     const answer = state.finalAnswers[i] || 'No answer entered';
     const res = state.finalResults[i];
     const impact = shown ? `+$${(res.score*(q.multiplier||100)).toLocaleString()} <span>${res.score}%</span>` : 'LOCKED';
-    return `<div class="final-review-row ${shown?'revealed':'locked'} answer-only">
+    const ratingReason = shown ? compactFinalReason(res.reason, answer, question) : '';
+    return `<div class="final-review-row ${shown?'revealed':'locked'}">
       <div class="review-q"><b>Q${i+1}</b> ${escapeHtml(question)}</div>
-      <div class="review-mid final-answer-only"><div class="review-answer">${escapeHtml(state.playerNames[state.finalistIndex])}: ${escapeHtml(answer)}</div></div>
+      <div class="review-mid">
+        <div class="review-answer">${escapeHtml(state.playerNames[state.finalistIndex])}: ${escapeHtml(answer)}</div>
+        <div class="review-reason">${shown ? escapeHtml(ratingReason) : ''}</div>
+      </div>
       <div class="review-impact">${impact}</div>
     </div>`;
   }).join('');
