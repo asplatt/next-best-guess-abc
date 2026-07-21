@@ -251,7 +251,6 @@ function tightFinalLineFallback(question='', answer=''){
   const al=a.toLowerCase();
   const cap=line=>{
     line=String(line||'').replace(/\.{2,}|…/g,'').replace(/\s+/g,' ').replace(/[.?!]+$/,'').trim();
-    if(line.length>92) line=line.slice(0,92).replace(/\s+\S*$/,'').trim();
     return line+'.';
   };
   if(q.includes('holiday')){
@@ -510,10 +509,10 @@ function formatReasonBullets(reason){
       .replace(/[“”]/g,'"').replace(/[’]/g,"'")
       .replace(/\s+/g,' ').trim();
     if(!line) line = fallbackText;
-    const complete = line.match(/^(.+?[.!?])(?:\s+.*)?$/);
-    if(complete) line = complete[1].trim();
     line = line.replace(/[,;:]$/, '');
     if(line && !/[.!?]$/.test(line)) line += '.';
+    const body = line.replace(/[.!?]+$/, '').trim();
+    if(/\b(if|and|or|but|because|although|while|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|before|after|against|within)\s*$/i.test(body)) return fallbackText;
     return line;
   };
   if(!raw) return fallback.map(x=>'• '+x).join('\n');

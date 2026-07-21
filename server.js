@@ -30,7 +30,7 @@ function normalizeCacheText(x){
     .trim();
 }
 function cacheKeyFor(mode, question, answer){
-  return [mode || 'unknown', normalizeCacheText(question), normalizeCacheText(answer)].join('::');
+  return ['v3-complete-sentences', mode || 'unknown', normalizeCacheText(question), normalizeCacheText(answer)].join('::');
 }
 function loadAnswerCache(){
   if (!ANSWER_CACHE_ENABLED) return {};
@@ -242,6 +242,16 @@ function parseScoredText(text){
   return { score: score ?? 72, reason };
 }
 
+function sentenceIsComplete(line=''){
+  const text = String(line || '').trim();
+  if (!text || !/[.!?]$/.test(text)) return false;
+  const body = text.replace(/[.!?]+$/, '').trim();
+  if (body.split(/\s+/).length < 6) return false;
+  if (/\b(if|and|or|but|because|although|while|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|before|after|against|within)\s*$/i.test(body)) return false;
+  if (/\b(this has a signal|not enough scale|target year|future path|category fit|needs a clearer)\b/i.test(body)) return false;
+  return true;
+}
+
 function normalizeTvSentence(value, fallback=''){
   let line = String(value || '')
     .replace(/```[\s\S]*?```/g, '')
@@ -251,15 +261,12 @@ function normalizeTvSentence(value, fallback=''){
     .replace(/[’]/g, "'")
     .replace(/\s+/g, ' ')
     .trim();
-  if (!line) line = fallback;
-  if (!line) return '';
-  // Never cut a sentence by character count. The prompt controls length; this only
-  // removes accidental trailing fragments after a complete sentence.
-  const completeMatch = line.match(/^(.+?[.!?])(?:\s+.*)?$/);
-  if (completeMatch) line = completeMatch[1].trim();
-  line = line.replace(/[,;:]$/, '');
-  if (!/[.!?]$/.test(line)) line += '.';
-  return line;
+  if (line && !/[.!?]$/.test(line)) line += '.';
+  if (!sentenceIsComplete(line)) {
+    line = String(fallback || '').replace(/\s+/g, ' ').trim();
+    if (line && !/[.!?]$/.test(line)) line += '.';
+  }
+  return sentenceIsComplete(line) ? line : 'The answer has a plausible route, but adoption depends on measurable demand and everyday usefulness.';
 }
 
 function cleanReasonForDisplay(reason){
@@ -726,7 +733,6 @@ function finalOneLineFallback(question='', answer=''){
   const al = a.toLowerCase();
   const cap = (line) => {
     line = String(line || '').replace(/\.{2,}|…/g,'').replace(/\s+/g,' ').replace(/[.?!]+$/,'').trim();
-    if (line.length > 110) line = line.slice(0,110).replace(/\s+\S*$/,'').trim();
     return line + '.';
   };
   if (q.includes('holiday')) {
@@ -781,7 +787,6 @@ function oneLineFinalReason(reason, question='', answer=''){
   line = strip(line).replace(/[.?!…]+$/,'').trim();
   const tooGeneric = !line || banned.test(line) || line.length < 18 || /\.{2,}|…|plausible future signal|runaway forecast|mass adoption|target year|not enough scale|clear evidence|possible, but|this idea needs|ai wants/i.test(line);
   if (tooGeneric) line = finalOneLineFallback(question, answer).replace(/[.?!…]+$/,'');
-  if (line.length > 110) line = line.slice(0,110).replace(/\s+\S*$/,'').trim();
   if (/\b(and|or|but|with|without|to|for|of|the|a|an|your|their|its|by|in|on|at|as|than|before|after|who)$/i.test(line)) line = finalOneLineFallback(question, answer).replace(/[.?!…]+$/,'');
   return line + '.';
 }
