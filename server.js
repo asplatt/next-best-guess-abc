@@ -10,6 +10,7 @@ const ROOT = __dirname;
 const KEY_FILE = path.join(ROOT, 'api_key.txt');
 const CACHE_FILE = process.env.ANSWER_CACHE_FILE || path.join(ROOT, 'answer_cache.json');
 const ANSWER_CACHE_ENABLED = process.env.DISABLE_ANSWER_CACHE !== '1';
+const SERVER_VERSION = 'v82-round3-fact-joke';
 
 function getApiKey(){
   if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim()) return process.env.OPENAI_API_KEY.trim();
@@ -871,62 +872,60 @@ Below 40 = barely answers the question.`;
   return reviewFinalResult(clampScoreToGuardrails(parsed, question, answer), question, answer);
 }
 
-function deterministicOpenBullets(question='', answer='', playerNum=1){
+function deterministicOpenPair(question='', answer='', playerNum=1){
   const q = String(question || '').toLowerCase();
   const a = String(answer || 'No answer given').trim();
   const displayAnswer = a ? a.charAt(0).toUpperCase() + a.slice(1) : 'No answer given';
   const al = a.toLowerCase();
+
   if (/\b(health\s*)?insurance|insurer|premium|deductible/.test(q)) {
-    if (/(toilet|bathroom|urine|stool|bowel)/.test(al)) return [
-      `${displayAnswer} could reveal hydration, digestion, medication use, and early signs of illness.`,
-      `Insurers would value passive medical data, although privacy and consent remain major obstacles.`,
-      `Your deductible may soon know more about your bathroom habits than your spouse.`
-    ];
-    if (/(neighbor|neighbour|community|kindness|treat people)/.test(al)) return [
-      `${displayAnswer} could be measured through complaints, disputes, cooperation, and community app activity.`,
-      `Insurers may connect stronger social relationships with lower stress and fewer costly health problems.`,
-      `Being nice to Gary next door may soon qualify as preventive medicine.`
-    ];
-    return [
-      `${displayAnswer} could matter if phones or sensors can measure it passively and consistently.`,
-      `Insurers would need evidence that the behavior predicts claims without creating legal problems.`,
-      answerSpecificJoke(question, answer, playerNum) + '.'
-    ];
+    if (/(toilet|bathroom|urine|stool|bowel)/.test(al)) return {
+      fact: `Smart toilets could turn ${a} into passive data about hydration, digestion, medication use, and early illness.`,
+      joke: `Your deductible may soon know more about your bathroom than your spouse.`
+    };
+    if (/(neighbor|neighbour|community|kindness|treat people)/.test(al)) return {
+      fact: `Insurers could connect ${a} with complaints, conflict, social isolation, stress, and long-term health risk.`,
+      joke: `Being nice to Gary next door may soon count as preventive medicine.`
+    };
+    return {
+      fact: `${displayAnswer} could matter if insurers can measure it consistently and prove that it predicts future medical costs.`,
+      joke: answerSpecificJoke(question, answer, playerNum) + '.'
+    };
   }
+
   if (q.includes('elective surgery')) {
-    if (/(height|leg length|limb length|extension)/.test(al)) return [
-      `${displayAnswer} have a visible status payoff, but recovery remains expensive, painful, and medically serious.`,
-      `It could grow by 2045, although safer cosmetic procedures are more likely to dominate.`,
-      `Elevator shoes may survive because hospitals still charge for parking.`
-    ];
-    if (/(third nipple|extra nipple)/.test(al)) return [
-      `${displayAnswer} could attract a body-modification niche, but mainstream demand would remain extremely limited.`,
-      `The procedure offers little practical payoff compared with beauty, aging, or longevity treatments.`,
-      `The future may add features, but probably not another cup size category.`
-    ];
-    return [
-      `${displayAnswer} needs a clear consumer benefit before it can become a routine elective procedure.`,
-      `Mass adoption depends on safety, affordability, visible payoff, and cultural normalization by 2045.`,
-      answerSpecificJoke(question, answer, playerNum) + '.'
-    ];
+    if (/(height|leg length|limb length|extension)/.test(al)) return {
+      fact: `${displayAnswer} offers a visible status payoff, but painful recovery and medical risk limit mass adoption.`,
+      joke: `Elevator shoes may survive because hospitals still charge for parking.`
+    };
+    if (/(third nipple|extra nipple)/.test(al)) return {
+      fact: `${displayAnswer} could attract a body-modification niche, but mainstream demand would remain extremely limited.`,
+      joke: `The future may add features, but probably not another cup-size category.`
+    };
+    return {
+      fact: `${displayAnswer} needs a clear consumer benefit, safe recovery, and broad cultural acceptance to become a leading elective procedure.`,
+      joke: answerSpecificJoke(question, answer, playerNum) + '.'
+    };
   }
-  return [
-    `${displayAnswer} has a plausible route forward if cost, access, and public acceptance improve.`,
-    `The strongest forecast depends on measurable demand rather than novelty alone.`,
-    answerSpecificJoke(question, answer, playerNum) + '.'
-  ];
+
+  return {
+    fact: `${displayAnswer} has a plausible future only if demand, affordability, access, and public acceptance all grow together.`,
+    joke: answerSpecificJoke(question, answer, playerNum) + '.'
+  };
 }
 
 function parseOpenJson(text, question, answers){
   const json = parseModelJson(text);
   if (!json || !Array.isArray(json.players) || json.players.length !== 2) throw new Error('expected exactly two players');
   return json.players.map((p, i) => {
-    if (!Array.isArray(p.bullets) || p.bullets.length !== 3) throw new Error(`player ${i+1} needs exactly three bullets`);
-    const bullets = p.bullets.map(x => normalizeTvSentence(x));
-    bullets.forEach((line, j) => {
-      if (!isCompleteTvSentence(line, {minWords:8, maxWords:24})) throw new Error(`player ${i+1} bullet ${j+1} is incomplete or badly sized`);
-    });
-    return { score: clamp(p.score), reason: bullets.map(x => `• ${x}`).join('\n') };
+    const fact = normalizeTvSentence(p.fact);
+    const joke = normalizeTvSentence(p.joke);
+    if (!isCompleteTvSentence(fact, {minWords:10, maxWords:28})) throw new Error(`player ${i+1} fact is incomplete or badly sized`);
+    if (!isCompleteTvSentence(joke, {minWords:6, maxWords:20})) throw new Error(`player ${i+1} joke is incomplete or badly sized`);
+    if (/this has a signal|not enough scale|target year|needs a clearer path|future path|category fit|mixed fit/i.test(`${fact} ${joke}`)) {
+      throw new Error(`player ${i+1} contains banned generic language`);
+    }
+    return { score: clamp(p.score), fact, joke, reason: `FACT: ${fact}\nJOKE: ${joke}` };
   });
 }
 
@@ -939,23 +938,22 @@ async function scoreOpenMatch(payload){
   const answers = (payload.answers || []).map(normalizeAnswer);
   const q = payload.question || '';
   const system = `You are the live judging voice for NEXT BEST GUESS, a premium network game show.
-Judge each exact contestant answer against the exact question and target year. Never rewrite an answer into a better idea.
+Judge each contestant's exact answer against the exact question and target year. Never rewrite an answer into a better idea.
 
 Return ONLY valid JSON with exactly this structure:
 {"players":[
-  {"score":82,"bullets":["Sentence one.","Sentence two.","Sentence three."]},
-  {"score":74,"bullets":["Sentence one.","Sentence two.","Sentence three."]}
+  {"score":82,"fact":"One complete factual sentence.","joke":"One complete host joke."},
+  {"score":74,"fact":"One complete factual sentence.","joke":"One complete host joke."}
 ]}
 
 For each player:
-1. Bullet one explains how the exact answer could happen or why it probably will not.
-2. Bullet two explains the main adoption driver or obstacle.
-3. Bullet three is a host-ready joke specifically about that exact answer.
-
-Every bullet must be one complete natural sentence between 8 and 24 words.
-Never use fragments, sentence stubs, rubric language, or phrases such as "this has a signal," "not enough scale," or "target year."
-Never end with if, against, within, because, for, of, to, the, or another dangling word.
-Do not use markdown or any text outside the JSON.`;
+- FACT must explain in one natural sentence why the exact answer is plausible or weak.
+- JOKE must be one short, host-ready sentence specifically about that exact answer.
+- FACT must contain 10 to 28 words.
+- JOKE must contain 6 to 20 words.
+- Both must be complete sentences with natural spoken English.
+- Never use generic rubric language such as "this has a signal," "not enough scale," "target year," or "future path."
+- Never use fragments, dangling clauses, labels inside the field values, markdown, or text outside the JSON.`;
   const user = `ABC pitch context: executives are playing live.
 Round: Round 3: Crystal Brawl
 Question: ${q}
@@ -975,57 +973,48 @@ Below 40 = barely answers the question.`;
   try {
     firstText = await requestOpenJson(system, user);
     const players = parseOpenJson(firstText, q, answers);
-    return { live: true, players: ensureDistinctLastJokes(players, q, answers) };
+    return { live: true, players };
   } catch (firstError) {
     console.warn('Round 3 first response rejected:', firstError.message);
     try {
-      const repairSystem = `Repair malformed game-show scoring JSON. Return ONLY valid JSON in the requested structure.
-Each player must have exactly three complete natural sentences between 8 and 24 words.
-Do not shorten, summarize, or preserve broken fragments. Rewrite every defective sentence completely.`;
+      const repairSystem = `Repair malformed game-show scoring JSON. Return ONLY valid JSON with two players, each containing score, fact, and joke.
+Rewrite every defective field from scratch. FACT must be 10-28 words. JOKE must be 6-20 words. Both must be complete natural sentences.`;
       const repairUser = `Question: ${q}
 Player 1 exact answer: ${answers[0] || 'No answer given'}
 Player 2 exact answer: ${answers[1] || 'No answer given'}
 Broken response:
-${firstText}
-
-Produce clean replacement JSON now.`;
+${firstText}`;
       const repairedText = await requestOpenJson(repairSystem, repairUser);
       const players = parseOpenJson(repairedText, q, answers);
-      return { live: true, repaired: true, players: ensureDistinctLastJokes(players, q, answers) };
+      return { live: true, repaired: true, players };
     } catch (repairError) {
       console.warn('Round 3 repair response rejected:', repairError.message);
-      const players = answers.map((answer, i) => ({
-        score: fallbackScoreFor(q, answer, i),
-        reason: deterministicOpenBullets(q, answer, i+1).map(x => `• ${normalizeTvSentence(x)}`).join('\n')
-      }));
-      return { live: false, deterministicFallback: true, players: ensureDistinctLastJokes(players, q, answers) };
+      const players = answers.map((answer, i) => {
+        const pair = deterministicOpenPair(q, answer, i + 1);
+        return {
+          score: fallbackScoreFor(q, answer, i),
+          fact: pair.fact,
+          joke: pair.joke,
+          reason: `FACT: ${pair.fact}\nJOKE: ${pair.joke}`
+        };
+      });
+      return { live: false, deterministicFallback: true, players };
     }
   }
 }
 
 async function evaluateWithOpenAI(payload) {
   if (payload.mode === 'open') {
-    const q = payload.question || '';
-    const answers = (payload.answers || []).map(normalizeAnswer);
-    const cached = answers.map(a => getCachedAnswer('open', q, a));
-    // Round 3 can compare two answers, but if either exact answer has already
-    // been scored for this exact question, keep that result stable across computers.
-    let result = null;
-    if (cached.every(Boolean)) {
-      return { live: false, cached: true, players: ensureDistinctLastJokes(cached.map(c => c.result), q, answers) };
-    }
-    result = await scoreOpenMatch(payload);
-    result.players = result.players.map((playerResult, i) => {
-      if (cached[i]?.result) return cached[i].result;
-      return setCachedAnswer('open', q, answers[i] || 'No answer given', playerResult);
-    });
-    return { ...result, cached: cached.some(Boolean), cacheStats: cacheStats() };
+    // Round 3 is intentionally never cached. Every reveal is generated, validated,
+    // and returned as one atomic result so stale or partially repaired copy cannot leak through.
+    const result = await scoreOpenMatch(payload);
+    return { ...result, cached: false, serverVersion: SERVER_VERSION };
   }
   if (payload.mode === 'finalForecast') {
     const question = payload.question || '';
     const answer = normalizeAnswer(payload.answer || 'No answer given');
     const cached = getCachedAnswer('finalForecast', question, answer);
-    if (cached?.result) return { live: false, cached: true, score: cached.result.score, reason: cached.result.reason };
+    if (cached?.result) return { live: false, cached: true, score: cached.result.score, reason: cached.result.reason, serverVersion: SERVER_VERSION };
     const result = await scoreSinglePrediction({
       question,
       answer,
@@ -1033,7 +1022,7 @@ async function evaluateWithOpenAI(payload) {
       round: 'Round 4: Predict the Future'
     });
     setCachedAnswer('finalForecast', question, answer, { score: result.score, reason: result.reason });
-    return { live: true, cached: false, score: result.score, reason: result.reason, cacheStats: cacheStats() };
+    return { live: true, cached: false, score: result.score, reason: result.reason, cacheStats: cacheStats(), serverVersion: SERVER_VERSION };
   }
   throw new Error('unknown evaluation mode');
 }
@@ -1041,7 +1030,7 @@ async function evaluateWithOpenAI(payload) {
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return send(res, 204, {});
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  if (url.pathname === '/api/health') return send(res, 200, { ok: true, serverVersion: 'v80-abc-answer-cache' , model: MODEL, fallbackModel: FALLBACK_MODEL, reasoningEffort: REASONING_EFFORT, hasKey: Boolean(getApiKey()), keySource: process.env.OPENAI_API_KEY ? 'environment' : (getApiKey() ? 'api_key.txt' : 'none'), cache: cacheStats() });
+  if (url.pathname === '/api/health') return send(res, 200, { ok: true, serverVersion: SERVER_VERSION , model: MODEL, fallbackModel: FALLBACK_MODEL, reasoningEffort: REASONING_EFFORT, hasKey: Boolean(getApiKey()), keySource: process.env.OPENAI_API_KEY ? 'environment' : (getApiKey() ? 'api_key.txt' : 'none'), cache: cacheStats() });
   if (url.pathname === '/api/cache/status') return send(res, 200, { ok: true, cache: cacheStats() });
   if (url.pathname === '/api/evaluate' && req.method === 'POST') {
     try {
@@ -1049,7 +1038,7 @@ const server = http.createServer(async (req, res) => {
       try { return send(res, 200, await evaluateWithOpenAI(payload)); }
       catch (e) {
         const msg = e && e.message ? e.message : 'OpenAI call failed';
-        return send(res, 200, payload.mode === 'open' ? fallbackOpen(payload, msg) : fallbackFinal(payload, msg));
+        return send(res, 200, payload.mode === 'open' ? { ...(await scoreOpenMatch(payload)), fallback: true, fallbackError: msg, serverVersion: SERVER_VERSION } : fallbackFinal(payload, msg));
       }
     } catch (e) { return send(res, 400, { error: e.message }); }
   }
@@ -1080,12 +1069,12 @@ server.on('error', (err) => {
   process.exit(1);
 });
 if (require.main === module) {
-  server.listen(PORT, () => console.log(`Next Best Guess server v81-structured-round3 running at http://localhost:${PORT}`));
+  server.listen(PORT, () => console.log(`Next Best Guess server ${SERVER_VERSION} running at http://localhost:${PORT}`));
 }
 module.exports = {
   normalizeTvSentence,
   isCompleteTvSentence,
-  deterministicOpenBullets,
+  deterministicOpenPair,
   parseOpenJson,
   scoreOpenMatch,
   cleanReasonForDisplay

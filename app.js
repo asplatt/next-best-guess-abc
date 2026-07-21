@@ -481,7 +481,15 @@ async function runLiveEvaluation(q){
     if(data.fallback) state.liveError = data.fallbackError || 'OpenAI fallback';
     if(data.error && !data.players && !Number.isFinite(Number(data.score))) throw new Error(data.error || 'bad response');
     if(q.type==='open'){
-      state.liveResults[liveKeyFor(q)] = { type:'open', players:(data.players||[]).slice(0,2).map(p=>({ score:clampScore(p.score), reason:formatReasonBullets(p.reason||'The live model returned a score, but not much reasoning. Fallback would have been more charming.') })) };
+      const players = Array.isArray(data.players) ? data.players : [];
+      if(players.length !== 2) throw new Error('Round 3 returned an invalid player count');
+      const normalized = players.map((p, idx) => {
+        const fact = validateOpenSentence(p.fact, 10, 30);
+        const joke = validateOpenSentence(p.joke, 6, 22);
+        if(!fact || !joke) throw new Error(`Round 3 returned incomplete copy for Player ${idx + 1}`);
+        return { score:clampScore(p.score), fact, joke, reason:`FACT: ${fact}\nJOKE: ${joke}` };
+      });
+      state.liveResults[liveKeyFor(q)] = { type:'open', players:normalized, serverVersion:data.serverVersion||'' };
     } else if(q.type==='finalReview'){
       const idx = state.finalReviewStep;
       state.liveResults[liveKeyFor(q,`-final-${idx}`)] = { type:'finalForecast', score:clampScore(data.score), reason:formatReasonBullets(data.reason||'The live score came through, but the explanation came back thin.') };
@@ -507,8 +515,18 @@ function formatReasonBullets(reason){
   return lines.map(line => '• ' + line).join('\n');
 }
 
+function validateOpenSentence(value, minWords, maxWords){
+  const line = String(value || '').replace(/\s+/g, ' ').trim();
+  const words = line.split(/\s+/).filter(Boolean).length;
+  const dangling = /\b(if|against|within|because|for|of|to|the|and|or|but|with|without|by|in|on|at|as|than|before|after|is|are|was|were|be|become)$/i;
+  const banned = /this has a signal|not enough scale|target year|needs a clearer path|future path|category fit|mixed fit/i;
+  if(words < minWords || words > maxWords || dangling.test(line.replace(/[.!?]+$/,'')) || banned.test(line) || !/[.!?]$/.test(line)) return '';
+  return line;
+}
 function formatOpenReasonBullets(reason){
-  return formatReasonBullets(reason);
+  const lines = String(reason || '').split(/\n+/).map(x=>x.trim()).filter(Boolean);
+  if(lines.length !== 2) return 'FACT: The live response failed validation.\nJOKE: Even the future occasionally needs a rewrite.';
+  return lines.join('\n');
 }
 
 function getOpenScored(q){
@@ -618,7 +636,14 @@ function revealAnswer(){
   state.revealData=reveal; state.view='reveal'; renderCurrent(true); emitSound(q.type==='finalMc'?'finale':'reveal'); sync();
 }
 function scoreOrder(answer, correct){ let count=0; for(let i=0;i<correct.length;i++) if(answer[i]===correct[i]) count++; return count; }
-function scoreOpenAnswer(q, answer, playerIndex){ const live=state.liveResults[liveKeyFor(q)]; if(live?.players?.[playerIndex]) return live.players[playerIndex]; const text=(answer||'').toLowerCase(); for(const rule of (q.rubric||[])){ if((rule.keywords||[]).some(k=>text.includes(k))) return {score:rule.score, reason:formatReasonBullets(rule.reason)}; } const fallback=(q.defaultScores&&q.defaultScores[playerIndex])||74; const reason=(q.defaultReasons&&q.defaultReasons[playerIndex])||'This has a signal, but it needs a cleaner path to everyday behavior. The strongest future answers connect incentives, scale, and one embarrassing human reason people actually adopt it.'; return {score:fallback, reason:formatReasonBullets(reason)}; }
+function scoreOpenAnswer(q, answer, playerIndex){
+  const live=state.liveResults[liveKeyFor(q)];
+  if(live?.players?.[playerIndex]) return live.players[playerIndex];
+  return {
+    score: 0,
+    reason: `FACT: The live response was unavailable and no cached copy was used.\nJOKE: Even the future occasionally needs a second take.`
+  };
+}
 function awardPoints(points){ if(state.revealed) return; state.revealed=true; state.scores[0]+=points[0]||0; state.scores[1]+=points[1]||0; updateScoreboard(true); }
 
 function fitTextToBox(el, minPx=11){
