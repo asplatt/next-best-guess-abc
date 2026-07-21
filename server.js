@@ -10,7 +10,7 @@ const ROOT = __dirname;
 const KEY_FILE = path.join(ROOT, 'api_key.txt');
 const CACHE_FILE = process.env.ANSWER_CACHE_FILE || path.join(ROOT, 'answer_cache.json');
 const ANSWER_CACHE_ENABLED = process.env.DISABLE_ANSWER_CACHE !== '1';
-const SERVER_VERSION = 'v82-round3-fact-joke';
+const SERVER_VERSION = 'v83-round3-atomic-fact-joke';
 
 function getApiKey(){
   if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim()) return process.env.OPENAI_API_KEY.trim();
@@ -877,55 +877,52 @@ function deterministicOpenPair(question='', answer='', playerNum=1){
   const a = String(answer || 'No answer given').trim();
   const displayAnswer = a ? a.charAt(0).toUpperCase() + a.slice(1) : 'No answer given';
   const al = a.toLowerCase();
+  let fact = '';
+  let joke = '';
 
   if (/\b(health\s*)?insurance|insurer|premium|deductible/.test(q)) {
-    if (/(toilet|bathroom|urine|stool|bowel)/.test(al)) return {
-      fact: `Smart toilets could turn ${a} into passive data about hydration, digestion, medication use, and early illness.`,
-      joke: `Your deductible may soon know more about your bathroom than your spouse.`
-    };
-    if (/(neighbor|neighbour|community|kindness|treat people)/.test(al)) return {
-      fact: `Insurers could connect ${a} with complaints, conflict, social isolation, stress, and long-term health risk.`,
-      joke: `Being nice to Gary next door may soon count as preventive medicine.`
-    };
-    return {
-      fact: `${displayAnswer} could matter if insurers can measure it consistently and prove that it predicts future medical costs.`,
-      joke: answerSpecificJoke(question, answer, playerNum) + '.'
-    };
-  }
-
-  if (q.includes('elective surgery')) {
-    if (/(height|leg length|limb length|extension)/.test(al)) return {
-      fact: `${displayAnswer} offers a visible status payoff, but painful recovery and medical risk limit mass adoption.`,
-      joke: `Elevator shoes may survive because hospitals still charge for parking.`
-    };
-    if (/(third nipple|extra nipple)/.test(al)) return {
-      fact: `${displayAnswer} could attract a body-modification niche, but mainstream demand would remain extremely limited.`,
-      joke: `The future may add features, but probably not another cup-size category.`
-    };
-    return {
-      fact: `${displayAnswer} needs a clear consumer benefit, safe recovery, and broad cultural acceptance to become a leading elective procedure.`,
-      joke: answerSpecificJoke(question, answer, playerNum) + '.'
-    };
+    if (/(toilet|bathroom|urine|stool|bowel)/.test(al)) {
+      fact = `${displayAnswer} could reveal hydration, digestion, medication use, and early signs of illness through smart bathroom sensors.`;
+      joke = `Your deductible may soon know more about your bathroom habits than your spouse.`;
+    } else if (/(neighbor|neighbour|community|kindness|treat people)/.test(al)) {
+      fact = `${displayAnswer} could be measured through complaints, disputes, cooperation, and community app activity linked to stress and health.`;
+      joke = `Being nice to Gary next door may soon qualify as preventive medicine.`;
+    } else {
+      fact = `${displayAnswer} could matter if phones or sensors can measure it consistently and connect it to future medical costs.`;
+      joke = answerSpecificJoke(question, answer, playerNum) + '.';
+    }
+  } else if (q.includes('elective surgery')) {
+    if (/(height|leg length|limb length|extension)/.test(al)) {
+      fact = `${displayAnswer} offers a visible status payoff, but painful recovery and medical risk limit mass adoption.`;
+      joke = `Elevator shoes may survive because hospitals still charge for parking.`;
+    } else if (/(third nipple|extra nipple)/.test(al)) {
+      fact = `${displayAnswer} could attract a body-modification niche, but mainstream demand would remain extremely limited.`;
+      joke = `The future may add features, but probably not another cup size category.`;
+    } else {
+      fact = `${displayAnswer} needs a clear consumer benefit, safe recovery, and broad cultural acceptance to become routine by 2045.`;
+      joke = answerSpecificJoke(question, answer, playerNum) + '.';
+    }
+  } else {
+    fact = `${displayAnswer} has a plausible route forward if cost, access, and public acceptance improve enough for mass adoption.`;
+    joke = answerSpecificJoke(question, answer, playerNum) + '.';
   }
 
   return {
-    fact: `${displayAnswer} has a plausible future only if demand, affordability, access, and public acceptance all grow together.`,
-    joke: answerSpecificJoke(question, answer, playerNum) + '.'
+    score: fallbackScoreFor(question, answer, playerNum - 1),
+    fact: normalizeTvSentence(fact),
+    joke: normalizeTvSentence(joke)
   };
 }
 
-function parseOpenJson(text, question, answers){
+function parseOpenJson(text){
   const json = parseModelJson(text);
   if (!json || !Array.isArray(json.players) || json.players.length !== 2) throw new Error('expected exactly two players');
   return json.players.map((p, i) => {
     const fact = normalizeTvSentence(p.fact);
     const joke = normalizeTvSentence(p.joke);
-    if (!isCompleteTvSentence(fact, {minWords:10, maxWords:28})) throw new Error(`player ${i+1} fact is incomplete or badly sized`);
-    if (!isCompleteTvSentence(joke, {minWords:6, maxWords:20})) throw new Error(`player ${i+1} joke is incomplete or badly sized`);
-    if (/this has a signal|not enough scale|target year|needs a clearer path|future path|category fit|mixed fit/i.test(`${fact} ${joke}`)) {
-      throw new Error(`player ${i+1} contains banned generic language`);
-    }
-    return { score: clamp(p.score), fact, joke, reason: `FACT: ${fact}\nJOKE: ${joke}` };
+    if (!isCompleteTvSentence(fact, {minWords:10, maxWords:30})) throw new Error(`player ${i+1} fact is incomplete or badly sized`);
+    if (!isCompleteTvSentence(joke, {minWords:6, maxWords:22})) throw new Error(`player ${i+1} joke is incomplete or badly sized`);
+    return { score: clamp(p.score), fact, joke };
   });
 }
 
@@ -938,22 +935,21 @@ async function scoreOpenMatch(payload){
   const answers = (payload.answers || []).map(normalizeAnswer);
   const q = payload.question || '';
   const system = `You are the live judging voice for NEXT BEST GUESS, a premium network game show.
-Judge each contestant's exact answer against the exact question and target year. Never rewrite an answer into a better idea.
+Judge each exact contestant answer against the exact question and target year. Never rewrite an answer into a better idea.
 
 Return ONLY valid JSON with exactly this structure:
 {"players":[
-  {"score":82,"fact":"One complete factual sentence.","joke":"One complete host joke."},
-  {"score":74,"fact":"One complete factual sentence.","joke":"One complete host joke."}
+  {"score":82,"fact":"One complete factual forecast sentence.","joke":"One complete host-ready joke."},
+  {"score":74,"fact":"One complete factual forecast sentence.","joke":"One complete host-ready joke."}
 ]}
 
 For each player:
-- FACT must explain in one natural sentence why the exact answer is plausible or weak.
-- JOKE must be one short, host-ready sentence specifically about that exact answer.
-- FACT must contain 10 to 28 words.
-- JOKE must contain 6 to 20 words.
-- Both must be complete sentences with natural spoken English.
-- Never use generic rubric language such as "this has a signal," "not enough scale," "target year," or "future path."
-- Never use fragments, dangling clauses, labels inside the field values, markdown, or text outside the JSON.`;
+1. FACT explains clearly why the exact answer is plausible or weak.
+2. JOKE is specific to that exact answer and sounds like a host line.
+3. FACT must be one natural sentence between 10 and 30 words.
+4. JOKE must be one natural sentence between 6 and 22 words.
+5. Never use fragments, rubric language, generic filler, or phrases such as "this has a signal," "not enough scale," or "target year."
+6. Do not use markdown or any text outside the JSON.`;
   const user = `ABC pitch context: executives are playing live.
 Round: Round 3: Crystal Brawl
 Question: ${q}
@@ -972,33 +968,31 @@ Below 40 = barely answers the question.`;
   let firstText = '';
   try {
     firstText = await requestOpenJson(system, user);
-    const players = parseOpenJson(firstText, q, answers);
-    return { live: true, players };
+    return { live: true, players: parseOpenJson(firstText) };
   } catch (firstError) {
     console.warn('Round 3 first response rejected:', firstError.message);
     try {
-      const repairSystem = `Repair malformed game-show scoring JSON. Return ONLY valid JSON with two players, each containing score, fact, and joke.
-Rewrite every defective field from scratch. FACT must be 10-28 words. JOKE must be 6-20 words. Both must be complete natural sentences.`;
+      const repairSystem = `Repair malformed game-show scoring JSON. Return ONLY valid JSON with exactly two players.
+Each player must contain only score, fact, and joke.
+FACT must be one complete natural sentence between 10 and 30 words.
+JOKE must be one complete natural sentence between 6 and 22 words.
+Rewrite defective copy completely. Do not return bullets, labels, markdown, or a reason field.`;
       const repairUser = `Question: ${q}
 Player 1 exact answer: ${answers[0] || 'No answer given'}
 Player 2 exact answer: ${answers[1] || 'No answer given'}
 Broken response:
-${firstText}`;
+${firstText}
+
+Produce clean replacement JSON now.`;
       const repairedText = await requestOpenJson(repairSystem, repairUser);
-      const players = parseOpenJson(repairedText, q, answers);
-      return { live: true, repaired: true, players };
+      return { live: true, repaired: true, players: parseOpenJson(repairedText) };
     } catch (repairError) {
       console.warn('Round 3 repair response rejected:', repairError.message);
-      const players = answers.map((answer, i) => {
-        const pair = deterministicOpenPair(q, answer, i + 1);
-        return {
-          score: fallbackScoreFor(q, answer, i),
-          fact: pair.fact,
-          joke: pair.joke,
-          reason: `FACT: ${pair.fact}\nJOKE: ${pair.joke}`
-        };
-      });
-      return { live: false, deterministicFallback: true, players };
+      return {
+        live: false,
+        deterministicFallback: true,
+        players: answers.map((answer, i) => deterministicOpenPair(q, answer, i + 1))
+      };
     }
   }
 }

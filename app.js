@@ -487,7 +487,7 @@ async function runLiveEvaluation(q){
         const fact = validateOpenSentence(p.fact, 10, 30);
         const joke = validateOpenSentence(p.joke, 6, 22);
         if(!fact || !joke) throw new Error(`Round 3 returned incomplete copy for Player ${idx + 1}`);
-        return { score:clampScore(p.score), fact, joke, reason:`FACT: ${fact}\nJOKE: ${joke}` };
+        return { score:clampScore(p.score), fact, joke };
       });
       state.liveResults[liveKeyFor(q)] = { type:'open', players:normalized, serverVersion:data.serverVersion||'' };
     } else if(q.type==='finalReview'){
@@ -516,17 +516,12 @@ function formatReasonBullets(reason){
 }
 
 function validateOpenSentence(value, minWords, maxWords){
-  const line = String(value || '').replace(/\s+/g, ' ').trim();
+  const line = String(value || '').replace(/^\s*(FACT|JOKE)\s*:\s*/i, '').replace(/\s+/g, ' ').trim();
   const words = line.split(/\s+/).filter(Boolean).length;
   const dangling = /\b(if|against|within|because|for|of|to|the|and|or|but|with|without|by|in|on|at|as|than|before|after|is|are|was|were|be|become)$/i;
   const banned = /this has a signal|not enough scale|target year|needs a clearer path|future path|category fit|mixed fit/i;
   if(words < minWords || words > maxWords || dangling.test(line.replace(/[.!?]+$/,'')) || banned.test(line) || !/[.!?]$/.test(line)) return '';
   return line;
-}
-function formatOpenReasonBullets(reason){
-  const lines = String(reason || '').split(/\n+/).map(x=>x.trim()).filter(Boolean);
-  if(lines.length !== 2) return 'FACT: The live response failed validation.\nJOKE: Even the future occasionally needs a rewrite.';
-  return lines.join('\n');
 }
 
 function getOpenScored(q){
@@ -540,7 +535,7 @@ function buildOpenRevealData(q, count, showScores=false){
       player: state.playerNames[i],
       answer: state.openAnswers[i] || 'No answer entered',
       score: scored[i].score,
-      reason: formatOpenReasonBullets(scored[i].reason)
+      reason: `FACT: ${scored[i].fact}\nJOKE: ${scored[i].joke}`
     });
   }
   return { kicker:'REAL AI RESPONSE', title:q.revealTitle, body:'', awards, openAwards:true, single:false, scoresVisible:showScores };
@@ -641,7 +636,8 @@ function scoreOpenAnswer(q, answer, playerIndex){
   if(live?.players?.[playerIndex]) return live.players[playerIndex];
   return {
     score: 0,
-    reason: `FACT: The live response was unavailable and no cached copy was used.\nJOKE: Even the future occasionally needs a second take.`
+    fact: 'The live response was unavailable, so no generated scoring explanation could be displayed.',
+    joke: 'Even the future occasionally needs a second take.'
   };
 }
 function awardPoints(points){ if(state.revealed) return; state.revealed=true; state.scores[0]+=points[0]||0; state.scores[1]+=points[1]||0; updateScoreboard(true); }
